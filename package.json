@@ -1,0 +1,22 @@
+{
+  "name": "pocketbizz-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "encore run",
+    "deploy:dev": "encore deploy --env=dev",
+    "deploy:preview": "encore deploy --env=preview",
+    "deploy:prod": "encore deploy --env=prod",
+    "lint": "echo \"TODO(p2): configure linting\"",
+    "test": "echo \"TODO(p2): configure tests\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.0",
+    "encore.dev": "^1.51.11"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}
