@@ -3,7 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/theme/app_theme.dart';
-import 'features/dashboard/presentation/dashboard_page.dart';
+import 'core/supabase/supabase_client.dart';
+import 'features/auth/presentation/login_page.dart';
+import 'features/dashboard/presentation/home_page.dart';
+import 'features/bookings/presentation/bookings_page.dart';
+import 'features/bookings/presentation/create_booking_page.dart';
+import 'features/products/presentation/product_list_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,12 +36,43 @@ class PocketBizzApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: const DashboardPage(),
       debugShowCheckedModeBanner: false,
+      home: const AuthWrapper(),
+      routes: {
+        '/login': (context) => const LoginPage(),
+        '/home': (context) => const HomePage(),
+        '/bookings': (context) => const BookingsPage(),
+        '/bookings/create': (context) => const CreateBookingPage(),
+        '/products': (context) => const ProductListPage(),
+      },
     );
   }
 }
 
-// Global Supabase accessor
-final supabase = Supabase.instance.client;
+/// Wrapper to check authentication status
+class AuthWrapper extends StatelessWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<AuthState>(
+      stream: supabase.auth.onAuthStateChange,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final session = snapshot.hasData ? snapshot.data!.session : null;
+
+        if (session != null) {
+          return const HomePage();
+        } else {
+          return const LoginPage();
+        }
+      },
+    );
+  }
+}
 

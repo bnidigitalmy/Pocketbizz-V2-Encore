@@ -5,16 +5,22 @@ import '../api/models/product_models.dart';
 class ProductsRepositorySupabase {
   /// Create product
   Future<Product> createProduct(Product product) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final data = await supabase
         .from('products')
         .insert({
+          'business_owner_id': userId,
           'name': product.name,
           'sku': product.sku,
           'category': product.category,
-          'price': product.price,
+          'sale_price': product.price,
+          'cost_price': product.costPrice ?? 0,
           'description': product.description,
           'unit': product.unit ?? 'pcs',
-          'cost_price': product.costPrice,
         })
         .select()
         .single();
