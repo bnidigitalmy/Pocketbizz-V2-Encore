@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../bookings/presentation/bookings_page.dart';
 import '../../products/presentation/product_list_page.dart';
-import 'dashboard_page.dart';
+import 'dashboard_page_simple.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -15,7 +15,7 @@ class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
 
   final List<Widget> _pages = const [
-    DashboardPage(),
+    DashboardPageSimple(),
     BookingsPage(),
     ProductListPage(),
   ];

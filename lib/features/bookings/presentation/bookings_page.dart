@@ -104,7 +104,12 @@ class _BookingsPageState extends State<BookingsPage> {
                     ),
             ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateBookingDialog(),
+        onPressed: () async {
+          final result = await Navigator.of(context).pushNamed('/bookings/create');
+          if (result == true && mounted) {
+            _loadBookings();
+          }
+        },
         child: const Icon(Icons.add),
       ),
     );
@@ -259,13 +264,5 @@ class _BookingsPageState extends State<BookingsPage> {
     }
   }
 
-  Future<void> _showCreateBookingDialog() async {
-    // TODO: Navigate to create booking form page
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Create booking form - Coming next!'),
-      ),
-    );
-  }
 }
 
