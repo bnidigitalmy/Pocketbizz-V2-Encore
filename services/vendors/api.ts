@@ -25,7 +25,7 @@ export const updateVendor = api<UpsertVendorRequest, VendorResponse>(
     path: "/vendors/update",
   },
   async ({ vendor }) => {
-    await supabaseUpdate("vendors", { id: vendor.id }, normalizeVendorPayload(vendor) as any);
+    await supabaseUpdate("vendors", vendor.id, normalizeVendorPayload(vendor) as any);
     return { vendor };
   }
 );

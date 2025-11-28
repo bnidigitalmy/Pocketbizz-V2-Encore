@@ -121,9 +121,10 @@ export const listExpenses = api(
     path: "/expenses/list",
   },
   async (): Promise<ExpenseListResponse> => {
-    const rows = await supabaseSelect<ExpenseRow>(EXPENSES_TABLE, (query) =>
-      query.order("expense_date", { ascending: false }).limit(100)
-    );
+    const rows = await supabaseSelect<ExpenseRow>(EXPENSES_TABLE, {
+      order: { column: "expense_date", ascending: false },
+      limit: 100,
+    });
     return {
       expenses: rows.map(mapExpenseRow),
     };
@@ -179,7 +180,7 @@ const _processReceiptSubscription = new Subscription(
 
       await supabaseUpdate(
         OCR_TABLE,
-        { id: event.receiptId },
+        event.receiptId,
         {
           status: "completed",
           amount: ocrResult.amount,
