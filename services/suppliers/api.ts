@@ -232,7 +232,7 @@ export const assignProduct = api<AssignProductRequest, SupplierProductsResponse>
     const mapped: SupplierProduct = {
       id: data.id,
       productId: data.product_id,
-      productName: data.products?.name ?? "Product",
+      productName: (data.products as any)?.name ?? "Product",
       commission: Number(data.commission ?? 0),
       createdAt: data.created_at,
       updatedAt: data.updated_at,
@@ -269,7 +269,7 @@ export const supplierProducts = api<{ authorization: Header<"Authorization">; id
       mapSupplierProduct({
         id: row.id,
         product_id: row.product_id,
-        product_name: row.products?.name ?? "Product",
+        product_name: (row.products as any)?.name ?? "Product",
         commission: row.commission,
         created_at: row.created_at,
         updated_at: row.updated_at,
