@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../bookings/presentation/bookings_page.dart';
 import '../../products/presentation/product_list_page.dart';
+import '../../sales/presentation/sales_page.dart';
 import 'dashboard_page_simple.dart';
 
 class HomePage extends StatefulWidget {
@@ -14,10 +15,11 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = const [
-    DashboardPageSimple(),
-    BookingsPage(),
-    ProductListPage(),
+  final List<Widget> _pages = [
+    const DashboardPageSimple(),
+    const BookingsPage(),
+    const ProductListPage(),
+    const SalesPage(),
   ];
 
   @override
@@ -41,6 +43,10 @@ class _HomePageState extends State<HomePage> {
           NavigationDestination(
             icon: Icon(Icons.inventory),
             label: 'Products',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.point_of_sale),
+            label: 'Sales',
           ),
         ],
       ),
@@ -101,6 +107,14 @@ class _HomePageState extends State<HomePage> {
               onTap: () {
                 Navigator.pop(context);
                 setState(() => _currentIndex = 2);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.point_of_sale),
+              title: const Text('Sales'),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => _currentIndex = 3);
               },
             ),
             const Divider(),
