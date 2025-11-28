@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../core/supabase/supabase_client.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/bookings_repository_supabase.dart';
+import 'widgets/modern_stat_card.dart';
+import 'widgets/quick_action_card.dart';
 
 class DashboardPageSimple extends StatefulWidget {
   const DashboardPageSimple({super.key});
@@ -44,13 +47,36 @@ class _DashboardPageSimpleState extends State<DashboardPageSimple> {
     final user = supabase.auth.currentUser;
 
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('PocketBizz Dashboard'),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'PocketBizz',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            Text(
+              user?.email ?? 'Guest',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadStats,
+            icon: const Icon(Icons.notifications_outlined, color: AppColors.textPrimary),
+            onPressed: () {},
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: _loading
@@ -58,50 +84,86 @@ class _DashboardPageSimpleState extends State<DashboardPageSimple> {
           : RefreshIndicator(
               onRefresh: _loadStats,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 children: [
-                  // Welcome Card
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Welcome back!',
-                            style: Theme.of(context).textTheme.headlineSmall,
+                  // Greeting Card
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: AppColors.primaryGradient,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                '👋 Welcome back!',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Let\'s make today productive',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white.withOpacity(0.9),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            user?.email ?? 'Guest',
-                            style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            shape: BoxShape.circle,
                           ),
-                        ],
-                      ),
+                          child: const Icon(
+                            Icons.business_center,
+                            color: Colors.white,
+                            size: 32,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
 
                   // Stats Cards
                   if (_stats != null) ...[
                     Row(
                       children: [
                         Expanded(
-                          child: _buildStatCard(
-                            'Total Bookings',
-                            _stats!['total_bookings'].toString(),
-                            Icons.event_note,
-                            Colors.blue,
+                          child: ModernStatCard(
+                            title: 'Total Bookings',
+                            value: _stats!['total_bookings'].toString(),
+                            icon: Icons.event_note_rounded,
+                            gradient: AppColors.primaryGradient,
+                            onTap: () => Navigator.of(context).pushNamed('/bookings'),
                           ),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
-                          child: _buildStatCard(
-                            'Pending',
-                            _stats!['pending'].toString(),
-                            Icons.pending,
-                            Colors.orange,
+                          child: ModernStatCard(
+                            title: 'Pending',
+                            value: _stats!['pending'].toString(),
+                            icon: Icons.pending_actions_rounded,
+                            gradient: AppColors.warningGradient,
+                            subtitle: 'Need Action',
                           ),
                         ),
                       ],
@@ -110,40 +172,50 @@ class _DashboardPageSimpleState extends State<DashboardPageSimple> {
                     Row(
                       children: [
                         Expanded(
-                          child: _buildStatCard(
-                            'Confirmed',
-                            _stats!['confirmed'].toString(),
-                            Icons.check_circle,
-                            Colors.blue,
+                          child: ModernStatCard(
+                            title: 'Confirmed',
+                            value: _stats!['confirmed'].toString(),
+                            icon: Icons.check_circle_rounded,
+                            gradient: AppColors.accentGradient,
                           ),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
-                          child: _buildStatCard(
-                            'Completed',
-                            _stats!['completed'].toString(),
-                            Icons.done_all,
-                            Colors.green,
+                          child: ModernStatCard(
+                            title: 'Completed',
+                            value: _stats!['completed'].toString(),
+                            icon: Icons.done_all_rounded,
+                            gradient: AppColors.successGradient,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _buildStatCard(
-                      'Total Revenue',
-                      'RM${(_stats!['total_revenue'] as double).toStringAsFixed(2)}',
-                      Icons.attach_money,
-                      Colors.green,
-                      fullWidth: true,
+                    ModernStatCard(
+                      title: 'Total Revenue',
+                      value: 'RM${(_stats!['total_revenue'] as double).toStringAsFixed(2)}',
+                      icon: Icons.monetization_on_rounded,
+                      gradient: AppColors.successGradient,
+                      subtitle: '💰 Keep it up!',
                     ),
                   ],
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 32),
 
                   // Quick Actions
-                  Text(
-                    'Quick Actions',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  const Row(
+                    children: [
+                      Icon(Icons.flash_on_rounded, color: AppColors.primary),
+                      SizedBox(width: 8),
+                      Text(
+                        'Quick Actions',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   GridView.count(
@@ -152,115 +224,44 @@ class _DashboardPageSimpleState extends State<DashboardPageSimple> {
                     crossAxisCount: 2,
                     mainAxisSpacing: 16,
                     crossAxisSpacing: 16,
+                    childAspectRatio: 1.3,
                     children: [
-                      _buildQuickActionCard(
-                        'New Booking',
-                        Icons.add_circle,
-                        Colors.blue,
-                        () => Navigator.of(context).pushNamed('/bookings/create'),
+                      QuickActionCard(
+                        label: 'New Booking',
+                        icon: Icons.add_business_rounded,
+                        color: AppColors.primary,
+                        onTap: () => Navigator.of(context).pushNamed('/bookings/create'),
                       ),
-                      _buildQuickActionCard(
-                        'View Bookings',
-                        Icons.event_note,
-                        Colors.green,
-                        () => Navigator.of(context).pushNamed('/bookings'),
+                      QuickActionCard(
+                        label: 'New Sale',
+                        icon: Icons.point_of_sale_rounded,
+                        color: AppColors.success,
+                        onTap: () => Navigator.of(context).pushNamed('/sales/create'),
                       ),
-                      _buildQuickActionCard(
-                        'Products',
-                        Icons.inventory,
-                        Colors.orange,
-                        () => Navigator.of(context).pushNamed('/products'),
+                      QuickActionCard(
+                        label: 'Add Product',
+                        icon: Icons.add_box_rounded,
+                        color: AppColors.accent,
+                        onTap: () => Navigator.of(context).pushNamed('/products/add'),
                       ),
-                      _buildQuickActionCard(
-                        'Settings',
-                        Icons.settings,
-                        Colors.purple,
-                        () {
+                      QuickActionCard(
+                        label: 'View Reports',
+                        icon: Icons.analytics_rounded,
+                        color: AppColors.info,
+                        onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Settings - Coming soon!')),
+                            const SnackBar(content: Text('Reports - Coming soon!')),
                           );
                         },
                       ),
                     ],
                   ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color, {
-    bool fullWidth = false,
-  }) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 24),
-                const Spacer(),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickActionCard(
-    String label,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 48, color: color),
-              const SizedBox(height: 12),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
