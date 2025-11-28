@@ -21,6 +21,10 @@ import {
   sanitizeString,
 } from "./utils";
 
+interface AuthorizedOnly {
+  authorization: Header<"Authorization">;
+}
+
 export const addFromProduction = api<AddFromProductionRequest, AddFromProductionResponse>(
   { method: "POST", path: "/shopping/add-from-production" },
   async ({ authorization, items }) => {
@@ -79,8 +83,4 @@ export const removeShoppingItemApi = api<RemoveItemRequest, RemoveItemResponse>(
     return { success: true };
   }
 );
-
-interface AuthorizedOnly {
-  authorization: Header<"Authorization">;
-}
 

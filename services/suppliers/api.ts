@@ -33,6 +33,10 @@ import {
   sanitizeString,
 } from "./utils";
 
+interface AuthorizedOnly {
+  authorization: Header<"Authorization">;
+}
+
 const normalizeSupplierPayload = (input: {
   name?: string;
   phone?: string;
@@ -397,8 +401,4 @@ export const receiveSupplierPO = api<ReceiveSupplierPORequest, ReceiveSupplierPO
     };
   }
 );
-
-interface AuthorizedOnly {
-  authorization: Header<"Authorization">;
-}
 
