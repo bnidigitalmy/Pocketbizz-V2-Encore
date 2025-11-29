@@ -1,5 +1,9 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/production_batch.dart';
+import '../models/production_preview.dart';
+import '../../core/utils/unit_conversion.dart';
+import 'recipes_repository_supabase.dart';
+import 'stock_repository_supabase.dart';
 
 /// Production Repository for managing production batches
 class ProductionRepository {
@@ -334,6 +338,113 @@ class ProductionRepository {
           .toList();
     } catch (e) {
       throw Exception('Failed to fetch expired batches: $e');
+    }
+  }
+
+  // ============================================================================
+  // PRODUCTION PLANNING & PREVIEW
+  // ============================================================================
+
+  /// Preview production plan - Calculate materials needed and check stock
+  Future<ProductionPlan> previewProductionPlan({
+    required String productId,
+    required int quantity, // Number of batches
+  }) async {
+    try {
+      // Get product info
+      final productResponse = await _supabase
+          .from('products')
+          .select()
+          .eq('id', productId)
+          .single();
+
+      final product = productResponse;
+      final unitsPerBatch = product['units_per_batch'] ?? 1;
+      final totalCostPerBatch = product['total_cost_per_batch'] ?? 0.0;
+
+      // Get active recipe
+      final recipesRepo = RecipesRepositorySupabase();
+      final recipe = await recipesRepo.getActiveRecipe(productId);
+
+      if (recipe == null) {
+        throw Exception('No active recipe found for this product');
+      }
+
+      // Get recipe items
+      final recipeItems = await recipesRepo.getRecipeItems(recipe.id);
+
+      // Get all stock items
+      final stockRepo = StockRepository(_supabase);
+      final stockItems = await stockRepo.getAllStockItems();
+
+      // Calculate materials needed
+      final materialsNeeded = <MaterialPreview>[];
+      bool allStockSufficient = true;
+      double totalProductionCost = 0.0;
+
+      for (final recipeItem in recipeItems) {
+        // Find stock item
+        final stockItem = stockItems.firstWhere(
+          (s) => s.id == recipeItem.stockItemId,
+          orElse: () => throw Exception(
+            'Stock item ${recipeItem.stockItemId} not found',
+          ),
+        );
+
+        // Calculate quantity needed for all batches
+        final quantityNeededPerBatch = recipeItem.quantityNeeded;
+        final totalQuantityNeeded = quantityNeededPerBatch * quantity;
+
+        // Convert to stock unit
+        final convertedQuantity = UnitConversion.convert(
+          quantity: totalQuantityNeeded,
+          fromUnit: recipeItem.usageUnit,
+          toUnit: stockItem.unit,
+        );
+
+        // Check sufficiency
+        final isSufficient = stockItem.currentQuantity >= convertedQuantity;
+        final shortage = isSufficient
+            ? 0.0
+            : convertedQuantity - stockItem.currentQuantity;
+
+        if (!isSufficient) {
+          allStockSufficient = false;
+        }
+
+        materialsNeeded.add(
+          MaterialPreview(
+            stockItemId: stockItem.id,
+            stockItemName: stockItem.name,
+            quantityNeeded: totalQuantityNeeded,
+            usageUnit: recipeItem.usageUnit,
+            currentStock: stockItem.currentQuantity,
+            stockUnit: stockItem.unit,
+            isSufficient: isSufficient,
+            shortage: shortage,
+            convertedQuantity: convertedQuantity,
+          ),
+        );
+      }
+
+      // Calculate total production cost
+      totalProductionCost = (totalCostPerBatch as num).toDouble() * quantity;
+
+      return ProductionPlan(
+        product: ProductInfo(
+          id: productId,
+          name: product['name'] ?? 'Unknown',
+          unitsPerBatch: unitsPerBatch,
+          totalCostPerBatch: totalCostPerBatch.toStringAsFixed(2),
+        ),
+        quantity: quantity,
+        totalUnits: (quantity * unitsPerBatch).toInt(),
+        materialsNeeded: materialsNeeded,
+        allStockSufficient: allStockSufficient,
+        totalProductionCost: totalProductionCost,
+      );
+    } catch (e) {
+      throw Exception('Failed to preview production plan: $e');
     }
   }
 }
