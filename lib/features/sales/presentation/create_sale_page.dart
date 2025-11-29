@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../data/repositories/sales_repository_supabase.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
-import '../../../data/api/models/product_models.dart';
+import '../../../data/models/product.dart';
 
 class CreateSalePage extends StatefulWidget {
   const CreateSalePage({super.key});

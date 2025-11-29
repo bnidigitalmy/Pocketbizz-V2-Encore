@@ -1,5 +1,5 @@
 import '../../core/supabase/supabase_client.dart';
-import '../api/models/product_models.dart';
+import '../models/product.dart';
 
 /// Products repository using Supabase directly
 class ProductsRepositorySupabase {
@@ -29,31 +29,9 @@ class ProductsRepositorySupabase {
     return _fromSupabaseJson(data);
   }
   
-  /// Convert Supabase JSON (snake_case) to Product model (camelCase)
+  /// Convert Supabase JSON (snake_case) to Product model
   Product _fromSupabaseJson(Map<String, dynamic> json) {
-    return Product.fromJson({
-      'id': json['id'],
-      'ownerId': json['business_owner_id'],
-      'sku': json['sku'],
-      'name': json['name'],
-      'unit': json['unit'],
-      'costPrice': json['cost_price'],
-      'salePrice': json['sale_price'],
-      'isActive': json['is_active'] ?? true,
-      'createdAt': json['created_at'],
-      'updatedAt': json['updated_at'],
-      'description': json['description'],
-      'category': json['category'],
-      'imageUrl': json['image_url'],
-      // New costing fields
-      'unitsPerBatch': json['units_per_batch'],
-      'labourCost': json['labour_cost'],
-      'otherCosts': json['other_costs'],
-      'packagingCost': json['packaging_cost'],
-      'materialsCost': json['materials_cost'],
-      'totalCostPerBatch': json['total_cost_per_batch'],
-      'costPerUnit': json['cost_per_unit'],
-    });
+    return Product.fromJson(json);
   }
 
   /// Get all products

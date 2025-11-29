@@ -47,8 +47,8 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
       ]);
 
       setState(() {
-        _products = (productsResult as List).cast<Product>();
-        _batches = (batchesResult as List).cast<ProductionBatch>();
+        _products = List<Product>.from(productsResult as List);
+        _batches = List<ProductionBatch>.from(batchesResult as List);
         _isLoading = false;
       });
     } catch (e) {

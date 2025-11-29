@@ -276,8 +276,8 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
             ),
             prefixIcon: const Icon(Icons.inventory_2),
           ),
-          items: widget.products.map((product) {
-            return DropdownMenuItem(
+          items: widget.products.map<DropdownMenuItem<Product>>((product) {
+            return DropdownMenuItem<Product>(
               value: product,
               child: Text(product.name),
             );

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
-import '../../../data/api/models/product_models.dart';
+import '../../../data/models/product.dart';
 import '../../recipes/presentation/recipe_builder_page.dart';
 import 'edit_product_page.dart';
 import 'add_product_with_recipe_page.dart';

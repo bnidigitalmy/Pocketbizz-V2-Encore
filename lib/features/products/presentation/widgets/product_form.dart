@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../../data/api/models/product_models.dart';
+import '../../../../data/models/product.dart';
 
 class ProductForm extends StatefulWidget {
   const ProductForm({
@@ -10,7 +10,7 @@ class ProductForm extends StatefulWidget {
   });
 
   final Product? initial;
-  final ValueChanged<ProductCreate> onSubmit;
+  final ValueChanged<Product> onSubmit;
 
   @override
   State<ProductForm> createState() => _ProductFormState();
@@ -109,21 +109,25 @@ class _ProductFormState extends State<ProductForm> {
             child: ElevatedButton(
               onPressed: () {
                 if (_formKey.currentState?.validate() ?? false) {
-                  widget.onSubmit(
-                    ProductCreate(
-                      sku: _skuController.text.trim(),
-                      name: _nameController.text.trim(),
-                      unit: _unitController.text.trim(),
-                      costPrice: double.parse(_costController.text),
-                      salePrice: double.parse(_priceController.text),
-                      category: _categoryController.text.trim().isEmpty
-                          ? null
-                          : _categoryController.text.trim(),
-                      description: _descriptionController.text.trim().isEmpty
-                          ? null
-                          : _descriptionController.text.trim(),
-                    ),
+                  final now = DateTime.now();
+                  final product = Product(
+                    id: '',
+                    businessOwnerId: '',
+                    sku: _skuController.text.trim(),
+                    name: _nameController.text.trim(),
+                    unit: _unitController.text.trim(),
+                    costPrice: double.parse(_costController.text),
+                    salePrice: double.parse(_priceController.text),
+                    category: _categoryController.text.trim().isEmpty
+                        ? null
+                        : _categoryController.text.trim(),
+                    description: _descriptionController.text.trim().isEmpty
+                        ? null
+                        : _descriptionController.text.trim(),
+                    createdAt: now,
+                    updatedAt: now,
                   );
+                  widget.onSubmit(product);
                 }
               },
               child: const Text('Save Product'),

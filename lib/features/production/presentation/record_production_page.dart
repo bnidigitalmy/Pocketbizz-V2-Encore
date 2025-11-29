@@ -5,7 +5,7 @@ import '../../../core/supabase/supabase_client.dart' show supabase;
 import '../../../data/repositories/production_repository_supabase.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/models/production_batch.dart';
-import '../../../data/api/models/product_models.dart';
+import '../../../data/models/product.dart';
 
 /// Record Production Page - Create new production batch
 class RecordProductionPage extends StatefulWidget {
