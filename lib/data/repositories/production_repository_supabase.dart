@@ -126,6 +126,9 @@ class ProductionRepository {
         params['p_batch_number'] = input.batchNumber;
       }
 
+      // Debug: Print params being sent
+      print('🔍 Calling record_production_batch with params: $params');
+
       final response = await _supabase.rpc(
         'record_production_batch',
         params: params,
@@ -136,11 +139,24 @@ class ProductionRepository {
     } catch (e) {
       // Provide more detailed error message
       final errorMsg = e.toString();
+      print('❌ Error calling record_production_batch: $errorMsg');
+      
       if (errorMsg.contains('does not exist') || errorMsg.contains('404')) {
         throw Exception(
           'Function record_production_batch not found. Please apply migration: db/migrations/create_record_production_batch_function.sql'
         );
       }
+      
+      // Check for 400 Bad Request - might be parameter mismatch
+      if (errorMsg.contains('400') || errorMsg.contains('Bad Request')) {
+        throw Exception(
+          'Bad Request (400): Function exists but parameters may be incorrect. '
+          'Please check: 1) Function is applied correctly, 2) Product ID is valid UUID, '
+          '3) Quantity is integer, 4) Dates are in YYYY-MM-DD format. '
+          'Error: $errorMsg'
+        );
+      }
+      
       throw Exception('Failed to record production batch: $e');
     }
   }
