@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart' show supabase;
 import '../../../data/repositories/production_repository_supabase.dart';
@@ -53,8 +54,14 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
+        // Show error in console for debugging
+        debugPrint('Error loading production data: $e');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text('Error memuat data: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     }
@@ -156,12 +163,15 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
                 Expanded(
                   child: _batches.isEmpty
                       ? _buildEmptyState()
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _batches.length,
-                          itemBuilder: (context, index) {
-                            return _buildBatchCard(_batches[index]);
-                          },
+                      : RefreshIndicator(
+                          onRefresh: _loadData,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _batches.length,
+                            itemBuilder: (context, index) {
+                              return _buildBatchCard(_batches[index]);
+                            },
+                          ),
                         ),
                 ),
               ],

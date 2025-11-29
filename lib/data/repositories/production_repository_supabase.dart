@@ -23,7 +23,10 @@ class ProductionRepository {
     try {
       dynamic query = _supabase
           .from('production_batches')
-          .select();
+          .select('''
+            *,
+            products!inner(name)
+          ''');
 
       if (productId != null) {
         query = query.eq('product_id', productId);
@@ -36,9 +39,14 @@ class ProductionRepository {
       query = query.order('batch_date', ascending: false);
 
       final response = await query;
-      return (response as List)
-          .map((json) => ProductionBatch.fromJson(json))
-          .toList();
+      return (response as List).map((json) {
+        // Extract product_name from joined products table
+        final productData = json['products'];
+        if (productData != null && productData is Map) {
+          json['product_name'] = productData['name'];
+        }
+        return ProductionBatch.fromJson(json);
+      }).toList();
     } catch (e) {
       throw Exception('Failed to fetch production batches: $e');
     }
