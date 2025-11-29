@@ -6,6 +6,7 @@ import '../../../data/models/shopping_cart_item.dart';
 import '../../../data/models/stock_item.dart';
 import '../../../data/repositories/shopping_cart_repository_supabase.dart';
 import '../../../data/repositories/stock_repository_supabase.dart';
+import '../../../data/repositories/purchase_order_repository_supabase.dart';
 import '../../../core/supabase/supabase_client.dart';
 
 /// Upgraded Shopping List Page
@@ -20,6 +21,7 @@ class ShoppingListPage extends StatefulWidget {
 class _ShoppingListPageState extends State<ShoppingListPage> {
   final _cartRepo = ShoppingCartRepository();
   final _stockRepo = StockRepository(supabase);
+  final _poRepo = PurchaseOrderRepository(supabase);
   
   List<ShoppingCartItem> _cartItems = [];
   List<StockItem> _allStockItems = [];
@@ -360,27 +362,63 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
       }
     }
     
-    // TODO: Create PO via repository
-    // For now, just show success
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎉 Purchase Order Dibuat!'),
-          backgroundColor: AppColors.success,
-        ),
+    // Create PO via repository
+    try {
+      final cartItemIds = _cartItems.map((item) => item.id).toList();
+      
+      await _poRepo.createPOFromCart(
+        supplierId: _selectedSupplierId,
+        supplierName: _previewSupplierNameController.text.trim(),
+        supplierPhone: _previewSupplierPhoneController.text.trim().isEmpty
+            ? null
+            : _previewSupplierPhoneController.text.trim(),
+        supplierEmail: _previewSupplierEmailController.text.trim().isEmpty
+            ? null
+            : _previewSupplierEmailController.text.trim(),
+        supplierAddress: _previewSupplierAddressController.text.trim().isEmpty
+            ? null
+            : _previewSupplierAddressController.text.trim(),
+        deliveryAddress: _previewDeliveryAddressController.text.trim().isEmpty
+            ? null
+            : _previewDeliveryAddressController.text.trim(),
+        notes: _previewNotesController.text.trim().isEmpty
+            ? null
+            : _previewNotesController.text.trim(),
+        cartItemIds: cartItemIds,
       );
       
-      setState(() {
-        _selectedSupplierId = null;
-        _customSupplierNameController.clear();
-        _customSupplierPhoneController.clear();
-        _customSupplierEmailController.clear();
-        _customSupplierAddressController.clear();
-        _deliveryAddressController.clear();
-        _poNotesController.clear();
-      });
-      
-      _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 Purchase Order Dibuat!'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        
+        setState(() {
+          _selectedSupplierId = null;
+          _customSupplierNameController.clear();
+          _customSupplierPhoneController.clear();
+          _customSupplierEmailController.clear();
+          _customSupplierAddressController.clear();
+          _deliveryAddressController.clear();
+          _poNotesController.clear();
+        });
+        
+        _loadData();
+        
+        // Navigate to PO page
+        Navigator.pushNamed(context, '/purchase-orders');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error creating PO: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -1272,9 +1310,9 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
             ElevatedButton(
               onPressed: _previewSupplierNameController.text.trim().isEmpty
                   ? null
-                  : () {
+                  : () async {
                       Navigator.pop(context);
-                      _createPO();
+                      await _createPO();
                     },
               child: const Text('Sahkan & Buat PO'),
             ),
