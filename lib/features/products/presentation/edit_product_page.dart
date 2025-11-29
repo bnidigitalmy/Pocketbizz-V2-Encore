@@ -3,26 +3,43 @@ import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/api/models/product_models.dart';
 import 'widgets/category_dropdown.dart';
 
-class AddProductPage extends StatefulWidget {
-  const AddProductPage({super.key});
+class EditProductPage extends StatefulWidget {
+  final Product product;
+  
+  const EditProductPage({
+    super.key,
+    required this.product,
+  });
 
   @override
-  State<AddProductPage> createState() => _AddProductPageState();
+  State<EditProductPage> createState() => _EditProductPageState();
 }
 
-class _AddProductPageState extends State<AddProductPage> {
+class _EditProductPageState extends State<EditProductPage> {
   final _formKey = GlobalKey<FormState>();
   final _repo = ProductsRepositorySupabase();
 
-  final _skuController = TextEditingController();
-  final _nameController = TextEditingController();
-  final _unitController = TextEditingController(text: 'pcs');
-  final _salePriceController = TextEditingController();
-  final _costPriceController = TextEditingController();
-  final _descriptionController = TextEditingController();
+  late final TextEditingController _skuController;
+  late final TextEditingController _nameController;
+  late final TextEditingController _unitController;
+  late final TextEditingController _salePriceController;
+  late final TextEditingController _costPriceController;
+  late final TextEditingController _descriptionController;
 
   String? _selectedCategory;
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _skuController = TextEditingController(text: widget.product.sku);
+    _nameController = TextEditingController(text: widget.product.name);
+    _selectedCategory = widget.product.category;
+    _unitController = TextEditingController(text: widget.product.unit);
+    _salePriceController = TextEditingController(text: widget.product.salePrice.toString());
+    _costPriceController = TextEditingController(text: widget.product.costPrice.toString());
+    _descriptionController = TextEditingController(text: widget.product.description ?? '');
+  }
 
   @override
   void dispose() {
@@ -41,25 +58,25 @@ class _AddProductPageState extends State<AddProductPage> {
     setState(() => _loading = true);
 
     try {
-      final product = ProductCreate(
-        sku: _skuController.text.trim(),
-        name: _nameController.text.trim(),
-        unit: _unitController.text.trim(),
-        costPrice: double.parse(_costPriceController.text),
-        salePrice: double.parse(_salePriceController.text),
-        description: _descriptionController.text.trim().isEmpty
+      final updates = {
+        'sku': _skuController.text.trim(),
+        'name': _nameController.text.trim(),
+        'unit': _unitController.text.trim(),
+        'cost_price': double.parse(_costPriceController.text),
+        'sale_price': double.parse(_salePriceController.text),
+        'description': _descriptionController.text.trim().isEmpty
             ? null
             : _descriptionController.text.trim(),
-        category: _selectedCategory,
-      );
+        'category': _selectedCategory,
+      };
 
-      await _repo.createProduct(product as Product);
+      await _repo.updateProduct(widget.product.id, updates);
 
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Product created successfully!'),
+            content: Text('Product updated successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -67,7 +84,10 @@ class _AddProductPageState extends State<AddProductPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -81,21 +101,37 @@ class _AddProductPageState extends State<AddProductPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Add Product'),
+        title: const Text('Edit Product'),
+        actions: [
+          if (_loading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                child: SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
-            // SKU
+            // SKU (Read-only - usually shouldn't change)
             TextFormField(
               controller: _skuController,
               decoration: const InputDecoration(
-                labelText: 'SKU *',
-                hintText: 'e.g., PROD-001',
+                labelText: 'SKU',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.tag),
+                helperText: 'Usually should not be changed',
               ),
               validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
             ),
@@ -106,7 +142,6 @@ class _AddProductPageState extends State<AddProductPage> {
               controller: _nameController,
               decoration: const InputDecoration(
                 labelText: 'Product Name *',
-                hintText: 'e.g., Chocolate Cake',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.shopping_bag),
               ),
@@ -116,6 +151,7 @@ class _AddProductPageState extends State<AddProductPage> {
 
             // Category Dropdown
             CategoryDropdown(
+              initialValue: _selectedCategory,
               onChanged: (value) => _selectedCategory = value,
             ),
             const SizedBox(height: 16),
@@ -139,7 +175,6 @@ class _AddProductPageState extends State<AddProductPage> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Sale Price (RM) *',
-                hintText: '0.00',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.attach_money),
               ),
@@ -157,7 +192,6 @@ class _AddProductPageState extends State<AddProductPage> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Cost Price (RM) *',
-                hintText: '0.00',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.money_off),
               ),
@@ -190,21 +224,13 @@ class _AddProductPageState extends State<AddProductPage> {
             const SizedBox(height: 24),
 
             // Save Button
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: _loading ? null : _saveProduct,
+              icon: const Icon(Icons.save),
+              label: const Text('Save Changes'),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
-              child: _loading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text(
-                      'Create Product',
-                      style: TextStyle(fontSize: 16),
-                    ),
             ),
           ],
         ),

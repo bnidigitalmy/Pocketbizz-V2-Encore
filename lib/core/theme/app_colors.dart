@@ -1,36 +1,40 @@
 import 'package:flutter/material.dart';
 
+/// PocketBizz Brand Colors - Malaysian SME-Friendly
+/// Primary: Fresh Green (Growth, Money, Halal-friendly)
+/// Accent: Premium Gold (Trust, Value)
 class AppColors {
-  // Primary Colors - Modern Purple/Blue Gradient
-  static const primary = Color(0xFF6C63FF);
-  static const primaryDark = Color(0xFF5548E8);
-  static const primaryLight = Color(0xFF8B84FF);
+  // Primary Colors - Fresh Emerald Green (PocketBizz Brand)
+  static const primary = Color(0xFF10B981);        // Emerald Green
+  static const primaryDark = Color(0xFF059669);    // Deep Green
+  static const primaryLight = Color(0xFF34D399);   // Light Green
   
-  // Accent Colors
-  static const accent = Color(0xFFFF6584);
-  static const accentLight = Color(0xFFFF8FA3);
+  // Accent Colors - Premium Gold
+  static const accent = Color(0xFFF59E0B);         // Amber Gold
+  static const accentLight = Color(0xFFFCD34D);    // Light Gold
+  static const accentDark = Color(0xFFD97706);     // Deep Gold
   
   // Status Colors
-  static const success = Color(0xFF4CAF50);
-  static const successLight = Color(0xFF81C784);
-  static const warning = Color(0xFFFF9800);
-  static const warningLight = Color(0xFFFFB74D);
-  static const error = Color(0xFFF44336);
-  static const errorLight = Color(0xFFE57373);
-  static const info = Color(0xFF2196F3);
-  static const infoLight = Color(0xFF64B5F6);
+  static const success = Color(0xFF10B981);        // Same as primary (green = success)
+  static const successLight = Color(0xFF6EE7B7);
+  static const warning = Color(0xFFF59E0B);        // Same as accent (gold = warning)
+  static const warningLight = Color(0xFFFBBF24);
+  static const error = Color(0xFFEF4444);
+  static const errorLight = Color(0xFFF87171);
+  static const info = Color(0xFF3B82F6);
+  static const infoLight = Color(0xFF60A5FA);
   
-  // Neutral Colors
-  static const background = Color(0xFFF8F9FA);
+  // Neutral Colors - Clean & Professional
+  static const background = Color(0xFFF9FAFB);     // Very light grey
   static const surface = Colors.white;
-  static const surfaceVariant = Color(0xFFF5F5F5);
+  static const surfaceVariant = Color(0xFFF3F4F6);
   
-  // Text Colors
-  static const textPrimary = Color(0xFF2C3E50);
-  static const textSecondary = Color(0xFF7F8C8D);
-  static const textHint = Color(0xFFBDC3C7);
+  // Text Colors - Professional Charcoal
+  static const textPrimary = Color(0xFF1F2937);    // Deep charcoal
+  static const textSecondary = Color(0xFF6B7280);  // Medium grey
+  static const textHint = Color(0xFF9CA3AF);       // Light grey
   
-  // Gradients
+  // Gradients - PocketBizz Signature
   static const primaryGradient = LinearGradient(
     colors: [primary, primaryLight],
     begin: Alignment.topLeft,
@@ -55,18 +59,33 @@ class AppColors {
     end: Alignment.bottomRight,
   );
   
-  // Shadows
+  // Premium gradient for special cards
+  static const premiumGradient = LinearGradient(
+    colors: [primary, accent],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+  
+  // Shadows - Soft & Modern
   static List<BoxShadow> cardShadow = [
     BoxShadow(
-      color: Colors.black.withOpacity(0.08),
-      blurRadius: 10,
+      color: Colors.black.withOpacity(0.06),
+      blurRadius: 12,
       offset: const Offset(0, 4),
     ),
   ];
   
   static List<BoxShadow> buttonShadow = [
     BoxShadow(
-      color: primary.withOpacity(0.3),
+      color: primary.withOpacity(0.25),
+      blurRadius: 8,
+      offset: const Offset(0, 4),
+    ),
+  ];
+  
+  static List<BoxShadow> accentButtonShadow = [
+    BoxShadow(
+      color: accent.withOpacity(0.25),
       blurRadius: 8,
       offset: const Offset(0, 4),
     ),

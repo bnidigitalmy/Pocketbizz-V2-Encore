@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/api/models/product_models.dart';
+import '../../recipes/presentation/recipe_builder_page.dart';
+import 'edit_product_page.dart';
 
 class ProductListPage extends StatefulWidget {
   const ProductListPage({super.key});
@@ -67,6 +69,33 @@ class _ProductListPageState extends State<ProductListPage> {
                         return Card(
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
+                            leading: product.imageUrl != null && product.imageUrl!.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      product.imageUrl!,
+                                      width: 56,
+                                      height: 56,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Container(
+                                          width: 56,
+                                          height: 56,
+                                          color: Colors.grey[300],
+                                          child: const Icon(Icons.broken_image),
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[300],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.image, color: Colors.grey),
+                                  ),
                             title: Text(
                               product.name,
                               style: const TextStyle(fontWeight: FontWeight.bold),
@@ -88,16 +117,37 @@ class _ProductListPageState extends State<ProductListPage> {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                // Recipe button
                                 IconButton(
-                                  icon: const Icon(Icons.edit, color: Colors.blue),
-                                  onPressed: () {
-                                    // TODO: Navigate to edit page
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Edit - Coming soon!'),
+                                  icon: const Icon(Icons.restaurant_menu, color: Colors.orange),
+                                  onPressed: () async {
+                                    await Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => RecipeBuilderPage(
+                                          productId: product.id,
+                                          productName: product.name,
+                                          productUnit: product.unit ?? 'unit',
+                                        ),
                                       ),
                                     );
                                   },
+                                  tooltip: 'Recipe',
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.blue),
+                                  onPressed: () async {
+                                    final result = await Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => EditProductPage(product: product),
+                                      ),
+                                    );
+                                    if (result == true && mounted) {
+                                      _loadProducts();
+                                    }
+                                  },
+                                  tooltip: 'Edit',
                                 ),
                                 IconButton(
                                   icon: const Icon(Icons.delete, color: Colors.red),

@@ -20,11 +20,14 @@ dependencies:
   cupertino_icons: ^1.0.6
   
   # Utilities
-  intl: ^0.19.0
+  intl: ^0.20.2
   shared_preferences: ^2.2.2
   
   # HTTP (for any remaining REST calls)
   http: ^1.2.0
+  
+  # Image handling
+  image_picker: ^1.0.7
 
 dev_dependencies:
   flutter_test:

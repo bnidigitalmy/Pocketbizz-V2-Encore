@@ -21,11 +21,46 @@ class ProductsRepositorySupabase {
           'cost_price': product.costPrice ?? 0,
           'description': product.description,
           'unit': product.unit ?? 'pcs',
+          'image_url': product.imageUrl,
         })
         .select()
         .single();
 
-    return Product.fromJson(data);
+    return _fromSupabaseJson(data);
+  }
+  
+  /// Convert Supabase JSON (snake_case) to Product model (camelCase)
+  Product _fromSupabaseJson(Map<String, dynamic> json) {
+    return Product.fromJson({
+      'id': json['id'],
+      'ownerId': json['business_owner_id'],
+      'sku': json['sku'],
+      'name': json['name'],
+      'unit': json['unit'],
+      'costPrice': json['cost_price'],
+      'salePrice': json['sale_price'],
+      'isActive': json['is_active'] ?? true,
+      'createdAt': json['created_at'],
+      'updatedAt': json['updated_at'],
+      'description': json['description'],
+      'category': json['category'],
+      'imageUrl': json['image_url'],
+    });
+  }
+
+  /// Get all products
+  Future<List<Product>> getAll() async {
+    try {
+      final response = await supabase
+          .from('products')
+          .select()
+          .eq('is_active', true)
+          .order('name', ascending: true);
+
+      return (response as List).map((json) => _fromSupabaseJson(json)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch products: $e');
+    }
   }
 
   /// Get product by ID
@@ -36,7 +71,7 @@ class ProductsRepositorySupabase {
         .eq('id', id)
         .single();
 
-    return Product.fromJson(data);
+    return _fromSupabaseJson(data);
   }
 
   /// List products
@@ -58,7 +93,7 @@ class ProductsRepositorySupabase {
 
     // Execute query with order and limit
     final data = await query.order('name').limit(limit);
-    return (data as List).map((json) => Product.fromJson(json)).toList();
+    return (data as List).map((json) => _fromSupabaseJson(json)).toList();
   }
 
   /// Update product
@@ -73,7 +108,7 @@ class ProductsRepositorySupabase {
         .select()
         .single();
 
-    return Product.fromJson(data);
+    return _fromSupabaseJson(data);
   }
 
   /// Delete product
@@ -89,7 +124,7 @@ class ProductsRepositorySupabase {
         .or('name.ilike.%$query%,sku.ilike.%$query%')
         .limit(20);
 
-    return (data as List).map((json) => Product.fromJson(json)).toList();
+    return (data as List).map((json) => _fromSupabaseJson(json)).toList();
   }
 }
 

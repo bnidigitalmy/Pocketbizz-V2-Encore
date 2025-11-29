@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/bookings_repository_supabase.dart';
+import '../../vendors/presentation/vendors_page.dart';
 import 'widgets/modern_stat_card.dart';
 import 'widgets/quick_action_card.dart';
+import 'widgets/low_stock_alerts_widget.dart';
 
 class DashboardPageSimple extends StatefulWidget {
   const DashboardPageSimple({super.key});
@@ -51,6 +53,12 @@ class _DashboardPageSimpleState extends State<DashboardPageSimple> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.transparent,
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.textPrimary),
+          onPressed: () {
+            Scaffold.of(context).openDrawer();
+          },
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -78,6 +86,66 @@ class _DashboardPageSimpleState extends State<DashboardPageSimple> {
           ),
           const SizedBox(width: 8),
         ],
+      ),
+      drawer: Drawer(
+        child: ListView(
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  const Icon(
+                    Icons.business_center,
+                    size: 48,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'PocketBizz',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    user?.email ?? 'Guest',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.store),
+              title: const Text('Vendors'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const VendorsPage()),
+                );
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+              onTap: () async {
+                await SupabaseHelper.signOut();
+                if (context.mounted) {
+                  Navigator.of(context).pushReplacementNamed('/login');
+                }
+              },
+            ),
+          ],
+        ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -239,23 +307,46 @@ class _DashboardPageSimpleState extends State<DashboardPageSimple> {
                         onTap: () => Navigator.of(context).pushNamed('/sales/create'),
                       ),
                       QuickActionCard(
-                        label: 'Add Product',
-                        icon: Icons.add_box_rounded,
+                        label: 'Stock Management',
+                        icon: Icons.inventory_2_rounded,
                         color: AppColors.accent,
-                        onTap: () => Navigator.of(context).pushNamed('/products/add'),
+                        onTap: () => Navigator.of(context).pushNamed('/stock'),
                       ),
                       QuickActionCard(
-                        label: 'View Reports',
-                        icon: Icons.analytics_rounded,
-                        color: AppColors.info,
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Reports - Coming soon!')),
-                          );
-                        },
+                        label: 'Record Production',
+                        icon: Icons.factory_rounded,
+                        color: Colors.purple,
+                        onTap: () => Navigator.of(context).pushNamed('/production/record'),
+                      ),
+                      QuickActionCard(
+                        label: 'Add Product',
+                        icon: Icons.add_box_rounded,
+                        color: AppColors.warning,
+                        onTap: () => Navigator.of(context).pushNamed('/products/add'),
                       ),
                     ],
                   ),
+                  
+                  const SizedBox(height: 32),
+
+                  // Low Stock Alerts Widget
+                  const Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Text(
+                        'Stock Alerts',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const LowStockAlertsWidget(),
+                  
                   const SizedBox(height: 24),
                 ],
               ),

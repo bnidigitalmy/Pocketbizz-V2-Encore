@@ -15,6 +15,7 @@ class Product {
     this.ownerId,
     this.description,
     this.category,
+    this.imageUrl,
   });
 
   final String id;
@@ -29,6 +30,7 @@ class Product {
   final DateTime updatedAt;
   final String? description;
   final String? category;
+  final String? imageUrl;
 
   factory Product.fromJson(Map<String, dynamic> json) => Product(
         id: json['id'] as String,
@@ -43,6 +45,7 @@ class Product {
         updatedAt: DateTime.parse(json['updatedAt'] as String),
         description: json['description'] as String?,
         category: json['category'] as String?,
+        imageUrl: json['imageUrl'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -58,6 +61,7 @@ class Product {
         'updatedAt': updatedAt.toIso8601String(),
         'description': description,
         'category': category,
+        'imageUrl': imageUrl,
       };
 }
 
@@ -71,6 +75,7 @@ class ProductCreate {
     this.description,
     this.category,
     this.ownerId,
+    this.imageUrl,
   });
 
   final String? ownerId;
@@ -81,6 +86,7 @@ class ProductCreate {
   final double salePrice;
   final String? description;
   final String? category;
+  final String? imageUrl;
 
   Map<String, dynamic> toJson() => {
         'ownerId': ownerId,
@@ -91,6 +97,7 @@ class ProductCreate {
         'salePrice': salePrice,
         'description': description,
         'category': category,
+        'imageUrl': imageUrl,
       };
 }
 
@@ -106,6 +113,7 @@ class ProductUpdate {
     this.description,
     this.category,
     this.isActive,
+    this.imageUrl,
   });
 
   final String id;
@@ -118,6 +126,7 @@ class ProductUpdate {
   final String? description;
   final String? category;
   final bool? isActive;
+  final String? imageUrl;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -130,6 +139,7 @@ class ProductUpdate {
         'description': description,
         'category': category,
         'isActive': isActive,
+        'imageUrl': imageUrl,
       }..removeWhere((_, value) => value == null);
 }
 

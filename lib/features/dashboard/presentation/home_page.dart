@@ -3,6 +3,7 @@ import '../../../core/supabase/supabase_client.dart';
 import '../../bookings/presentation/bookings_page.dart';
 import '../../products/presentation/product_list_page.dart';
 import '../../sales/presentation/sales_page.dart';
+import '../../vendors/presentation/vendors_page.dart';
 import 'dashboard_page_simple.dart';
 
 class HomePage extends StatefulWidget {
@@ -115,6 +116,17 @@ class _HomePageState extends State<HomePage> {
               onTap: () {
                 Navigator.pop(context);
                 setState(() => _currentIndex = 3);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.store),
+              title: const Text('Vendors'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const VendorsPage()),
+                );
               },
             ),
             const Divider(),
