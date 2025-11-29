@@ -10,24 +10,48 @@ class ProductsRepositorySupabase {
       throw Exception('User not authenticated');
     }
 
+    // Build insert data, only include non-null fields
+    final insertData = <String, dynamic>{
+      'business_owner_id': userId,
+      'name': product.name,
+      'sku': product.sku,
+      'sale_price': product.salePrice,
+      'cost_price': product.costPrice,
+      'unit': product.unit,
+      'units_per_batch': product.unitsPerBatch,
+      'labour_cost': product.labourCost,
+      'other_costs': product.otherCosts,
+      'packaging_cost': product.packagingCost,
+      'is_active': true, // Default to active
+    };
+
+    // Add optional fields only if they have values
+    if (product.categoryId != null && product.categoryId!.isNotEmpty) {
+      insertData['category_id'] = product.categoryId;
+    }
+    if (product.category != null && product.category!.isNotEmpty) {
+      insertData['category'] = product.category;
+    }
+    if (product.description != null && product.description!.isNotEmpty) {
+      insertData['description'] = product.description;
+    }
+    if (product.imageUrl != null && product.imageUrl!.isNotEmpty) {
+      insertData['image_url'] = product.imageUrl;
+    }
+    // Add calculated cost fields (can be null)
+    if (product.materialsCost != null) {
+      insertData['materials_cost'] = product.materialsCost;
+    }
+    if (product.totalCostPerBatch != null) {
+      insertData['total_cost_per_batch'] = product.totalCostPerBatch;
+    }
+    if (product.costPerUnit != null) {
+      insertData['cost_per_unit'] = product.costPerUnit;
+    }
+
     final data = await supabase
         .from('products')
-        .insert({
-          'business_owner_id': userId,
-          'name': product.name,
-          'sku': product.sku,
-          'category_id': product.categoryId,
-          'category': product.category,
-          'sale_price': product.salePrice,
-          'cost_price': product.costPrice,
-          'description': product.description,
-          'unit': product.unit,
-          'image_url': product.imageUrl,
-          'units_per_batch': product.unitsPerBatch,
-          'labour_cost': product.labourCost,
-          'other_costs': product.otherCosts,
-          'packaging_cost': product.packagingCost,
-        })
+        .insert(insertData)
         .select()
         .single();
 
