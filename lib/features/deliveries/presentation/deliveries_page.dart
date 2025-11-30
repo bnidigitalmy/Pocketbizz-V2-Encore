@@ -13,7 +13,11 @@ import 'edit_rejection_dialog.dart';
 import 'payment_status_dialog.dart';
 import 'invoice_dialog.dart';
 
-/// Deliveries Page - Manage vendor deliveries
+/// Deliveries Page - Consignment System
+/// Manage deliveries to Consignees (vendors)
+/// 
+/// User (Consignor) hantar produk ke Vendor (Consignee) untuk dijual
+/// dengan sistem consignment
 /// Optimized based on React code with all features
 class DeliveriesPage extends StatefulWidget {
   const DeliveriesPage({super.key});

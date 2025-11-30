@@ -12,8 +12,17 @@ import '../../../data/models/vendor.dart';
 import 'phone_input_dialog.dart';
 import 'claim_details_dialog.dart';
 
-/// Claims Page - Vendor Payment Tracking
-/// Optimized based on React code with all features
+/// Claims Page - Consignment System
+/// User (Consignor) buat tuntutan bayaran dari Vendor (Consignee)
+/// 
+/// Flow:
+/// 1. Vendor jual produk kepada customer
+/// 2. Vendor update sales dan balance unsold/expired/rosak kepada user
+/// 3. User buat tuntutan bayaran based on product sold only
+/// 4. Vendor buat payment kepada user dengan jumlah selepas tolak komisyen
+/// 
+/// Payment Formula: (Sold Products Value) - (Commission Rate %)
+/// Note: Unsold/expired/rosak products tidak termasuk dalam payment
 class ClaimsPage extends StatefulWidget {
   const ClaimsPage({super.key});
 

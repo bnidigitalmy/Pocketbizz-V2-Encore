@@ -1,4 +1,10 @@
-/// Vendor Model - Represents a vendor/supplier
+/// Vendor Model - Represents a Consignee (kedai yang jual produk untuk user)
+/// 
+/// This is part of the Consignment System:
+/// - User (Consignor) = Pengeluar/owner produk yang guna app PocketBizz
+/// - Vendor (Consignee) = Kedai yang jual produk untuk user dengan commission
+/// 
+/// Flow: User hantar produk → Vendor jual → Vendor dapat commission → User dapat payment
 class Vendor {
   final String id;
   final String businessOwnerId;
@@ -10,7 +16,8 @@ class Vendor {
   final String? address;
   
   // Commission Settings
-  final double defaultCommissionRate; // Percentage
+  final String commissionType; // 'percentage' or 'price_range'
+  final double defaultCommissionRate; // Percentage (for percentage type)
   
   // Bank Details
   final String? bankName;
@@ -34,6 +41,7 @@ class Vendor {
     this.email,
     this.phone,
     this.address,
+    this.commissionType = 'percentage',
     this.defaultCommissionRate = 0.0,
     this.bankName,
     this.bankAccountNumber,
@@ -52,6 +60,7 @@ class Vendor {
       email: json['email'] as String?,
       phone: json['phone'] as String?,
       address: json['address'] as String?,
+      commissionType: json['commission_type'] as String? ?? 'percentage',
       defaultCommissionRate: (json['default_commission_rate'] as num?)?.toDouble() ?? 0.0,
       bankName: json['bank_name'] as String?,
       bankAccountNumber: json['bank_account_number'] as String?,
@@ -71,6 +80,7 @@ class Vendor {
       'email': email,
       'phone': phone,
       'address': address,
+      'commission_type': commissionType,
       'default_commission_rate': defaultCommissionRate,
       'bank_name': bankName,
       'bank_account_number': bankAccountNumber,
@@ -89,6 +99,7 @@ class Vendor {
       'email': email,
       'phone': phone,
       'address': address,
+      'commission_type': commissionType,
       'default_commission_rate': defaultCommissionRate,
       'bank_name': bankName,
       'bank_account_number': bankAccountNumber,

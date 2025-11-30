@@ -8,6 +8,8 @@ import '../../../data/repositories/vendors_repository_supabase.dart';
 import '../../../data/models/delivery.dart';
 import '../../../data/models/vendor.dart';
 import '../../../data/models/product.dart';
+import '../../../core/utils/vendor_price_calculator.dart';
+import '../../../data/repositories/finished_products_repository_supabase.dart';
 
 /// Delivery Form Dialog
 /// Handles creating new deliveries with items
@@ -42,6 +44,8 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
   bool _isSubmitting = false;
   bool _isLoadingLastDelivery = false;
   Map<String, dynamic>? _vendorCommission;
+  final _finishedProductsRepo = FinishedProductsRepository();
+  final Map<String, double> _productStockMap = {}; // Cache stock availability
 
   @override
   void initState() {
@@ -145,16 +149,65 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
     }
   }
 
-  void _onProductChanged(int index, String productId) {
+  Future<void> _onProductChanged(int index, String productId) async {
     final product = widget.products.firstWhere((p) => p.id == productId);
+    
+    // Check if product has valid sale price
+    if (product.salePrice <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Produk "${product.name}" tidak ada harga jualan. Sila update harga produk dahulu.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      setState(() {
+        _items[index].productId = productId;
+        _items[index].productName = product.name;
+        _items[index].retailPrice = '0.00';
+        _items[index].unitPrice = '0.00';
+        _calculateTotal();
+      });
+      return;
+    }
+    
+    // Load stock availability
+    final availableStock = await widget.deliveriesRepo.getAvailableStock(productId);
+    _productStockMap[productId] = availableStock;
+    
+    // Show warning if stock is low
+    if (availableStock <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Stok "${product.name}" habis. Stok sedia ada: ${availableStock.toStringAsFixed(1)} unit.'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } else if (availableStock < 10) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Stok "${product.name}" rendah. Stok sedia ada: ${availableStock.toStringAsFixed(1)} unit.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+    
     final retailPrice = product.salePrice.toStringAsFixed(2);
-    final vendorPrice = _calculateVendorPrice(retailPrice);
+    final vendorPrice = await _calculateVendorPrice(retailPrice);
 
     setState(() {
       _items[index].productId = productId;
       _items[index].productName = product.name;
       _items[index].retailPrice = retailPrice;
-      _items[index].unitPrice = vendorPrice;
+      _items[index].unitPrice = vendorPrice; // Auto-calculated based on commission
       _calculateTotal();
     });
   }
@@ -166,33 +219,49 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
     });
   }
 
-  void _onPriceChanged(int index, String value) {
-    setState(() {
-      _items[index].unitPrice = value;
-      _calculateTotal();
-    });
-  }
+  // Price is auto-calculated, no manual editing needed
 
-  String _calculateVendorPrice(String retailPrice) {
+  Future<String> _calculateVendorPrice(String retailPrice) async {
     final price = double.tryParse(retailPrice) ?? 0.0;
-    if (_vendorCommission == null || price == 0) return retailPrice;
-
-    if (_vendorCommission!['commissionType'] == 'percentage') {
-      final commissionPercent = double.tryParse(_vendorCommission!['percentage'] ?? '0') ?? 0.0;
-      final vendorPrice = price - (price * commissionPercent / 100);
-      return vendorPrice.toStringAsFixed(2);
+    
+    // If price is 0 or invalid, return as is
+    if (price <= 0) {
+      return retailPrice;
+    }
+    
+    // If no vendor selected or no commission info, return retail price
+    if (_selectedVendorId == null || _vendorCommission == null) {
+      return retailPrice;
     }
 
-    return retailPrice;
+    final commissionType = _vendorCommission!['commissionType'] as String? ?? 'percentage';
+    final commissionRate = double.tryParse(_vendorCommission!['percentage'] ?? '0') ?? 0.0;
+
+    try {
+      final vendorPrice = await VendorPriceCalculator.calculateVendorPrice(
+        vendorId: _selectedVendorId!,
+        retailPrice: price,
+        commissionType: commissionType,
+        commissionRate: commissionRate,
+      );
+
+      return vendorPrice.toStringAsFixed(2);
+    } catch (e) {
+      debugPrint('Error calculating vendor price: $e');
+      // Return retail price if calculation fails
+      return retailPrice;
+    }
   }
 
-  void _recalculateItemPrices() {
+  Future<void> _recalculateItemPrices() async {
     for (var item in _items) {
       if (item.retailPrice != null && item.retailPrice!.isNotEmpty) {
-        item.unitPrice = _calculateVendorPrice(item.retailPrice!);
+        item.unitPrice = await _calculateVendorPrice(item.retailPrice!);
       }
     }
-    _calculateTotal();
+    setState(() {
+      _calculateTotal();
+    });
   }
 
   void _calculateTotal() {
@@ -223,6 +292,25 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
         const SnackBar(
           content: Text('Sila tambah sekurang-kurangnya satu item'),
           backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Validate that all items have valid prices
+    final itemsWithInvalidPrice = _items.where((item) {
+      final price = double.tryParse(item.unitPrice) ?? 0.0;
+      return price <= 0;
+    }).toList();
+
+    if (itemsWithInvalidPrice.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '⚠️ ${itemsWithInvalidPrice.length} produk tidak ada harga yang sah. Sila pastikan semua produk ada harga jualan.',
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 4),
         ),
       );
       return;
@@ -427,8 +515,17 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
   }
 
   Widget _buildItemCard(int index, DeliveryItemForm item) {
+    final availableStock = item.productId.isNotEmpty 
+        ? _productStockMap[item.productId] ?? 0.0 
+        : 0.0;
+    final requestedQty = item.quantity;
+    final isStockInsufficient = availableStock < requestedQty;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      color: isStockInsufficient && item.productId.isNotEmpty 
+          ? Colors.red[50] 
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -470,43 +567,64 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
                 Expanded(
                   child: TextFormField(
                     initialValue: item.quantity.toStringAsFixed(1),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Qty',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      helperText: item.productId.isNotEmpty
+                          ? 'Stok: ${(_productStockMap[item.productId] ?? 0.0).toStringAsFixed(1)} unit'
+                          : null,
+                      helperMaxLines: 1,
+                      errorText: item.productId.isNotEmpty && 
+                          item.quantity > (_productStockMap[item.productId] ?? 0.0)
+                          ? 'Stok tidak cukup!'
+                          : null,
                     ),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (value) => _onQuantityChanged(index, value),
+                    onChanged: (value) {
+                      _onQuantityChanged(index, value);
+                      // Re-validate stock after quantity change
+                      if (item.productId.isNotEmpty) {
+                        setState(() {});
+                      }
+                    },
                     validator: (value) {
                       final qty = double.tryParse(value ?? '0') ?? 0;
                       if (qty <= 0) {
                         return 'Qty > 0';
+                      }
+                      if (item.productId.isNotEmpty) {
+                        final availableStock = _productStockMap[item.productId] ?? 0.0;
+                        if (qty > availableStock) {
+                          return 'Stok tidak cukup';
+                        }
                       }
                       return null;
                     },
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Price
+                // Price (Auto-calculated, read-only)
                 Expanded(
                   child: TextFormField(
                     initialValue: item.unitPrice,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Harga',
-                      border: OutlineInputBorder(),
+                      hintText: 'Auto-calculated',
+                      border: const OutlineInputBorder(),
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      helperText: 'Auto (tolak komisyen)',
+                      helperMaxLines: 1,
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (value) => _onPriceChanged(index, value),
-                    validator: (value) {
-                      final price = double.tryParse(value ?? '0') ?? 0;
-                      if (price < 0) {
-                        return 'Harga >= 0';
-                      }
-                      return null;
-                    },
+                    readOnly: true, // User tidak boleh edit - auto-calculated
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
                 // Remove button

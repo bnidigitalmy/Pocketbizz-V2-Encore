@@ -24,6 +24,8 @@ import 'features/purchase_orders/presentation/purchase_orders_page.dart';
 import 'features/deliveries/presentation/deliveries_page.dart';
 import 'features/claims/presentation/claims_page.dart';
 import 'features/settings/presentation/settings_page.dart';
+import 'features/suppliers/presentation/suppliers_page.dart';
+import 'features/finished_products/presentation/finished_products_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -80,6 +82,8 @@ class PocketBizzApp extends StatelessWidget {
         '/deliveries': (context) => const DeliveriesPage(),
         '/claims': (context) => const ClaimsPage(),
         '/settings': (context) => const SettingsPage(),
+        '/suppliers': (context) => const SuppliersPage(),
+        '/finished-products': (context) => const FinishedProductsPage(),
       },
     );
   }

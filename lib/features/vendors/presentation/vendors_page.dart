@@ -4,8 +4,17 @@ import '../../../data/repositories/vendors_repository_supabase.dart';
 import '../../../data/models/vendor.dart';
 import 'commission_dialog.dart';
 
-/// Optimized Vendors Page
-/// Based on React code with commission setup functionality
+/// Vendors Page (Consignment System)
+/// Manage Consignees (kedai yang jual produk untuk user)
+/// 
+/// This is part of the Consignment System:
+/// - User (Consignor) = Pengeluar/owner produk
+/// - Vendor (Consignee) = Kedai yang jual produk dengan commission
+/// 
+/// Features:
+/// - Add/Edit/Delete vendors (consignees)
+/// - Setup commission rates
+/// - Track vendor claims and payments
 class VendorsPage extends StatefulWidget {
   const VendorsPage({super.key});
 

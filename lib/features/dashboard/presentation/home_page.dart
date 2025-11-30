@@ -5,6 +5,7 @@ import '../../products/presentation/product_list_page.dart';
 import '../../sales/presentation/sales_page.dart';
 import '../../vendors/presentation/vendors_page.dart';
 import '../../production/presentation/production_planning_page.dart';
+import '../../finished_products/presentation/finished_products_page.dart';
 import 'dashboard_page_optimized.dart';
 
 class HomePage extends StatefulWidget {
@@ -142,6 +143,17 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.check_circle_outline),
+              title: const Text('Stok Siap'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const FinishedProductsPage()),
+                );
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.inventory_2),
               title: const Text('Stock Management'),
               onTap: () {
@@ -163,6 +175,14 @@ class _HomePageState extends State<HomePage> {
               onTap: () {
                 Navigator.pop(context);
                 Navigator.pushNamed(context, '/purchase-orders');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.business),
+              title: const Text('Suppliers'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/suppliers');
               },
             ),
             ListTile(

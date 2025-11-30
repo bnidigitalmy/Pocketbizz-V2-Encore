@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
 import '../../../data/models/delivery.dart';
+import '../../../data/repositories/business_profile_repository_supabase.dart';
+import '../../../core/utils/delivery_invoice_pdf_generator.dart';
 
 /// Invoice Dialog
 /// Shows delivery invoice and allows PDF generation
@@ -20,17 +24,31 @@ class InvoiceDialog extends StatefulWidget {
 
 class _InvoiceDialogState extends State<InvoiceDialog> {
   bool _isGeneratingPDF = false;
+  final _businessProfileRepo = BusinessProfileRepository();
 
-  Future<void> _generatePDF(String type) async {
+  Future<void> _generatePDF(String format) async {
     setState(() => _isGeneratingPDF = true);
     try {
-      // TODO: Create dedicated delivery invoice PDF generator
-      // For now, show a message that PDF generation will be implemented
+      // Load business profile
+      final businessProfile = await _businessProfileRepo.getBusinessProfile();
+
+      // Generate PDF
+      final pdfBytes = await DeliveryInvoicePDFGenerator.generateDeliveryInvoice(
+        widget.delivery,
+        businessProfile: businessProfile,
+        format: format,
+      );
+
+      // Share/Print PDF
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => pdfBytes,
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('PDF generation untuk $type akan ditambah kemudian'),
-            backgroundColor: Colors.orange,
+          const SnackBar(
+            content: Text('✅ PDF berjaya dijana'),
+            backgroundColor: Colors.green,
           ),
         );
       }

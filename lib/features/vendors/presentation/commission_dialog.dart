@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/vendors_repository_supabase.dart';
+import '../../../data/repositories/vendor_commission_price_ranges_repository_supabase.dart';
 import '../../../data/models/vendor.dart';
+import '../../../data/models/vendor_commission_price_range.dart';
 
 /// Commission Setup Dialog
 /// Allows setting up commission rates for vendors
@@ -23,10 +26,13 @@ class CommissionDialog extends StatefulWidget {
 
 class _CommissionDialogState extends State<CommissionDialog> {
   final _vendorsRepo = VendorsRepositorySupabase();
+  final _priceRangesRepo = VendorCommissionPriceRangesRepository();
   final _commissionController = TextEditingController();
   bool _isLoading = false;
   bool _isSaving = false;
   Vendor? _vendor;
+  String _commissionType = 'percentage';
+  List<VendorCommissionPriceRange> _priceRanges = [];
 
   @override
   void initState() {
@@ -47,9 +53,22 @@ class _CommissionDialogState extends State<CommissionDialog> {
       if (mounted && vendor != null) {
         setState(() {
           _vendor = vendor;
+          _commissionType = vendor.commissionType;
           _commissionController.text = vendor.defaultCommissionRate.toStringAsFixed(2);
-          _isLoading = false;
         });
+        
+        // Load price ranges if commission type is price_range
+        if (_commissionType == 'price_range') {
+          final ranges = await _priceRangesRepo.getPriceRanges(widget.vendorId);
+          if (mounted) {
+            setState(() {
+              _priceRanges = ranges;
+              _isLoading = false;
+            });
+          }
+        } else {
+          setState(() => _isLoading = false);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -65,27 +84,46 @@ class _CommissionDialogState extends State<CommissionDialog> {
   }
 
   Future<void> _saveCommission() async {
-    final commissionRate = double.tryParse(_commissionController.text);
-    if (commissionRate == null || commissionRate < 0 || commissionRate > 100) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sila masukkan kadar komisyen yang sah (0-100%)'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
+    if (_commissionType == 'percentage') {
+      final commissionRate = double.tryParse(_commissionController.text);
+      if (commissionRate == null || commissionRate < 0 || commissionRate > 100) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sila masukkan kadar komisyen yang sah (0-100%)'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    } else if (_commissionType == 'price_range') {
+      if (_priceRanges.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sila tambah sekurang-kurangnya satu price range'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _isSaving = true);
     try {
-      await _vendorsRepo.updateVendor(widget.vendorId, {
-        'default_commission_rate': commissionRate,
-      });
+      final updateData = <String, dynamic>{
+        'commission_type': _commissionType,
+      };
+      
+      if (_commissionType == 'percentage') {
+        final commissionRate = double.tryParse(_commissionController.text) ?? 0.0;
+        updateData['default_commission_rate'] = commissionRate;
+      }
+
+      await _vendorsRepo.updateVendor(widget.vendorId, updateData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Kadar komisyen berjaya dikemaskini'),
+            content: Text('✅ Komisyen berjaya dikemaskini'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -132,27 +170,50 @@ class _CommissionDialogState extends State<CommissionDialog> {
                     style: TextStyle(fontSize: 13, color: Colors.grey),
                   ),
                   const SizedBox(height: 24),
-                  TextFormField(
-                    controller: _commissionController,
+                  // Commission Type Selector
+                  DropdownButtonFormField<String>(
+                    value: _commissionType,
                     decoration: const InputDecoration(
-                      labelText: 'Kadar Komisyen (%)',
-                      hintText: 'cth: 10.0',
+                      labelText: 'Jenis Komisyen *',
                       border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.percent),
-                      suffixText: '%',
+                      prefixIcon: Icon(Icons.settings),
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Kadar komisyen diperlukan';
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'percentage',
+                        child: Text('Peratus (%) - cth: 10%, 15%, 20%'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'price_range',
+                        child: Text('Price Range - cth: RM0.1-RM5=RM1, RM5.01-RM10=RM1.50'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _commissionType = value);
+                        if (value == 'price_range' && _priceRanges.isEmpty) {
+                          _loadPriceRanges();
+                        }
                       }
-                      final rate = double.tryParse(value);
-                      if (rate == null || rate < 0 || rate > 100) {
-                        return 'Kadar mesti antara 0-100%';
-                      }
-                      return null;
                     },
                   ),
+                  const SizedBox(height: 16),
+                  // Commission Input based on type
+                  if (_commissionType == 'percentage') ...[
+                    TextFormField(
+                      controller: _commissionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Kadar Komisyen (%)',
+                        hintText: 'cth: 10.0',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.percent),
+                        suffixText: '%',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                  ] else if (_commissionType == 'price_range') ...[
+                    _buildPriceRangesSection(),
+                  ],
                   if (_vendor != null) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -206,6 +267,242 @@ class _CommissionDialogState extends State<CommissionDialog> {
         ),
       ],
     );
+  }
+
+  Future<void> _loadPriceRanges() async {
+    try {
+      final ranges = await _priceRangesRepo.getPriceRanges(widget.vendorId);
+      if (mounted) {
+        setState(() => _priceRanges = ranges);
+      }
+    } catch (e) {
+      debugPrint('Error loading price ranges: $e');
+    }
+  }
+
+  Widget _buildPriceRangesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Price Ranges',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: _showAddPriceRangeDialog,
+              tooltip: 'Tambah Price Range',
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_priceRanges.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              'Tiada price range. Klik + untuk tambah.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          )
+        else
+          ..._priceRanges.map((range) => _buildPriceRangeCard(range)),
+      ],
+    );
+  }
+
+  Widget _buildPriceRangeCard(VendorCommissionPriceRange range) {
+    final maxPriceText = range.maxPrice == null 
+        ? 'dan ke atas' 
+        : 'hingga RM${range.maxPrice!.toStringAsFixed(2)}';
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text(
+          'RM${range.minPrice.toStringAsFixed(2)} $maxPriceText',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text('Komisyen: RM${range.commissionAmount.toStringAsFixed(2)}'),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete, color: Colors.red),
+          onPressed: () => _deletePriceRange(range.id),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAddPriceRangeDialog() async {
+    final minPriceController = TextEditingController();
+    final maxPriceController = TextEditingController();
+    final commissionController = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Tambah Price Range'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: minPriceController,
+                decoration: const InputDecoration(
+                  labelText: 'Harga Min (RM) *',
+                  hintText: '0.10',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: maxPriceController,
+                decoration: const InputDecoration(
+                  labelText: 'Harga Max (RM) - Kosongkan untuk unlimited',
+                  hintText: '5.00',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: commissionController,
+                decoration: const InputDecoration(
+                  labelText: 'Jumlah Komisyen (RM) *',
+                  hintText: '1.00',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Tambah'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      final minPrice = double.tryParse(minPriceController.text);
+      final maxPrice = maxPriceController.text.trim().isEmpty
+          ? null
+          : double.tryParse(maxPriceController.text);
+      final commission = double.tryParse(commissionController.text);
+
+      if (minPrice == null || commission == null || minPrice < 0 || commission < 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sila masukkan nilai yang sah'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (maxPrice != null && maxPrice <= minPrice) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Harga max mesti lebih besar dari harga min'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      try {
+        await _priceRangesRepo.createPriceRange(
+          vendorId: widget.vendorId,
+          minPrice: minPrice,
+          maxPrice: maxPrice,
+          commissionAmount: commission,
+          position: _priceRanges.length,
+        );
+        
+        await _loadPriceRanges();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Price range berjaya ditambah'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _deletePriceRange(String rangeId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Padam Price Range?'),
+        content: const Text('Adakah anda pasti untuk memadam price range ini?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Padam', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _priceRangesRepo.deletePriceRange(rangeId);
+        await _loadPriceRanges();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Price range berjaya dipadam'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 }
 
