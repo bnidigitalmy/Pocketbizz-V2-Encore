@@ -157,6 +157,14 @@ class _HomePageState extends State<HomePage> {
                 Navigator.pushNamed(context, '/shopping-list');
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.description),
+              title: const Text('Purchase Orders'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/purchase-orders');
+              },
+            ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.settings),
