@@ -1,15 +1,7 @@
-node_modules
-dist
-.env
-.DS_Store
-*.log
+# Vercel
+.vercel
 
-encore.gen.go
-encore.gen.cue
-/.encore
-/encore.gen
-
-# Flutter
+# Flutter/Dart
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -17,8 +9,24 @@ encore.gen.cue
 .pub-cache/
 .pub/
 build/
-!build/web/
-pubspec.lock
-.metadata
 *.iml
+*.ipr
+*.iws
 .idea/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment
+.env
+.env.local
+.secrets.local.cue
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Encore
+encore.gen/

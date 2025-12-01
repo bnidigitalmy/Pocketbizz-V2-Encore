@@ -63,3 +63,4 @@ Theme colors sudah di-update untuk match dengan logo:
 - **Accent:** Blue (#3B82F6) - logo bottom color
 - **Gradient:** Teal to Blue (matches logo gradient)
 
+
