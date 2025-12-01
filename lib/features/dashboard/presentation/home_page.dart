@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../bookings/presentation/bookings_page_optimized.dart';
 import '../../products/presentation/product_list_page.dart';
-import '../../sales/presentation/sales_page_enhanced.dart';
+import '../../sales/presentation/sales_page.dart';
+import '../../expenses/presentation/expenses_page.dart';
 import '../../vendors/presentation/vendors_page.dart';
 import '../../production/presentation/production_planning_page.dart';
-import '../../finished_products/presentation/finished_products_page.dart';
 import 'dashboard_page_optimized.dart';
 
 class HomePage extends StatefulWidget {
@@ -22,7 +22,7 @@ class _HomePageState extends State<HomePage> {
     const DashboardPageOptimized(),
     const BookingsPageOptimized(),
     const ProductListPage(),
-    const SalesPageEnhanced(),
+    const SalesPage(),
   ];
 
   @override
@@ -143,17 +143,6 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.check_circle_outline),
-              title: const Text('Stok Siap'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const FinishedProductsPage()),
-                );
-              },
-            ),
-            ListTile(
               leading: const Icon(Icons.inventory_2),
               title: const Text('Stock Management'),
               onTap: () {
@@ -183,6 +172,14 @@ class _HomePageState extends State<HomePage> {
               onTap: () {
                 Navigator.pop(context);
                 Navigator.pushNamed(context, '/suppliers');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.receipt_long),
+              title: const Text('Expenses'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/expenses');
               },
             ),
             ListTile(

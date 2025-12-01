@@ -13,8 +13,8 @@ import 'features/bookings/presentation/bookings_page_optimized.dart';
 import 'features/bookings/presentation/create_booking_page_enhanced.dart';
 import 'features/products/presentation/product_list_page.dart';
 import 'features/products/presentation/add_product_page.dart';
-import 'features/sales/presentation/sales_page_enhanced.dart';
-import 'features/sales/presentation/create_sale_page_enhanced.dart';
+import 'features/sales/presentation/sales_page.dart';
+import 'features/sales/presentation/create_sale_page.dart';
 import 'features/stock/presentation/stock_page.dart';
 import 'features/categories/presentation/categories_page.dart';
 import 'features/production/presentation/record_production_page.dart';
@@ -25,7 +25,7 @@ import 'features/deliveries/presentation/deliveries_page.dart';
 import 'features/claims/presentation/claims_page.dart';
 import 'features/settings/presentation/settings_page.dart';
 import 'features/suppliers/presentation/suppliers_page.dart';
-import 'features/finished_products/presentation/finished_products_page.dart';
+import 'features/expenses/presentation/expenses_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -71,8 +71,8 @@ class PocketBizzApp extends StatelessWidget {
         '/bookings/create': (context) => const CreateBookingPageEnhanced(),
         '/products': (context) => const ProductListPage(),
         '/products/add': (context) => const AddProductPage(),
-        '/sales': (context) => const SalesPageEnhanced(),
-        '/sales/create': (context) => const CreateSalePageEnhanced(),
+        '/sales': (context) => const SalesPage(),
+        '/sales/create': (context) => const CreateSalePage(),
         '/stock': (context) => const StockPage(),
         '/categories': (context) => const CategoriesPage(),
         '/production/record': (context) => const RecordProductionPage(),
@@ -83,7 +83,7 @@ class PocketBizzApp extends StatelessWidget {
         '/claims': (context) => const ClaimsPage(),
         '/settings': (context) => const SettingsPage(),
         '/suppliers': (context) => const SuppliersPage(),
-        '/finished-products': (context) => const FinishedProductsPage(),
+        '/expenses': (context) => const ExpensesPage(),
       },
     );
   }
