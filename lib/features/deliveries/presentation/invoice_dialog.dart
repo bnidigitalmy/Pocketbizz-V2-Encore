@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
+import 'dart:typed_data';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import '../../../data/models/delivery.dart';
 import '../../../data/repositories/business_profile_repository_supabase.dart';
 import '../../../core/utils/delivery_invoice_pdf_generator.dart';
@@ -26,6 +30,20 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
   bool _isGeneratingPDF = false;
   final _businessProfileRepo = BusinessProfileRepository();
 
+  Future<void> _downloadPdfWeb(Uint8List pdfBytes) async {
+    final fileName =
+        'invois-${widget.delivery.invoiceNumber ?? widget.delivery.id}.pdf';
+
+    final blob = html.Blob([pdfBytes], 'application/pdf');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', fileName)
+      ..click();
+
+    html.Url.revokeObjectUrl(url);
+  }
+
   Future<void> _generatePDF(String format) async {
     setState(() => _isGeneratingPDF = true);
     try {
@@ -39,10 +57,15 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
         format: format,
       );
 
-      // Share/Print PDF
-      await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) async => pdfBytes,
-      );
+      if (kIsWeb) {
+        // On web, use browser download instead of printing plugin
+        await _downloadPdfWeb(pdfBytes);
+      } else {
+        // Mobile / desktop: use printing plugin
+        await Printing.layoutPdf(
+          onLayout: (PdfPageFormat format) async => pdfBytes,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
