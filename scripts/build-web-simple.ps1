@@ -62,3 +62,4 @@ if (Test-Path "build/web/index.html") {
 Write-Host ""
 Write-Host "🎉 Done!" -ForegroundColor Green
 
+

@@ -64,3 +64,4 @@ Theme colors sudah di-update untuk match dengan logo:
 - **Gradient:** Teal to Blue (matches logo gradient)
 
 
+
