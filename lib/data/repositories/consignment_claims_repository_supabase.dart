@@ -8,11 +8,14 @@ import '../models/claim_summary.dart';
 /// Works with new consignment_claims and consignment_claim_items tables
 class ConsignmentClaimsRepositorySupabase {
   /// Create claim from deliveries
+  /// Optional: itemMetadata to specify carry_forward_status per delivery item
+  /// Format: {'<delivery_item_id>': {'carry_forward_status': 'carry_forward'|'loss'|'none'}}
   Future<ConsignmentClaim> createClaim({
     required String vendorId,
     required List<String> deliveryIds,
     required DateTime claimDate,
     String? notes,
+    Map<String, Map<String, dynamic>>? itemMetadata,
   }) async {
     final userId = SupabaseHelper.currentUserId;
     if (userId == null) {
@@ -38,6 +41,56 @@ class ConsignmentClaimsRepositorySupabase {
     final vendorIds = deliveries.map((d) => (d as Map)['vendor_id'] as String).toSet();
     if (vendorIds.length > 1 || !vendorIds.contains(vendorId)) {
       throw Exception('All deliveries must be for the same vendor');
+    }
+
+    // Check if any delivery has already been claimed (draft, submitted, approved, settled, or rejected)
+    // We include ALL statuses except only archived/deleted to prevent duplicate claims
+    final existingClaimsResponse = await supabase
+        .from('consignment_claim_items')
+        .select('''
+          delivery_id,
+          claim:consignment_claims!inner (
+            id,
+            claim_number,
+            status
+          )
+        ''')
+        .filter('delivery_id', 'in', _buildInFilter(deliveryIds))
+        .inFilter('claim.status', ['draft', 'submitted', 'approved', 'settled', 'rejected']);
+
+    final existingClaims = existingClaimsResponse as List;
+    if (existingClaims.isNotEmpty) {
+      final claimedDeliveryIds = <String>{};
+      final claimNumbers = <String>{};
+      
+      for (var item in existingClaims) {
+        final itemMap = item as Map<String, dynamic>;
+        final deliveryId = itemMap['delivery_id'] as String;
+        final claim = itemMap['claim'] as Map<String, dynamic>;
+        final claimNumber = claim['claim_number'] as String;
+        
+        claimedDeliveryIds.add(deliveryId);
+        claimNumbers.add(claimNumber);
+      }
+
+      final deliveryNumbers = <String>[];
+      for (var deliveryId in claimedDeliveryIds) {
+        final delivery = deliveries.firstWhere(
+          (d) => (d as Map)['id'] == deliveryId,
+          orElse: () => null,
+        );
+        if (delivery != null) {
+          final invoiceNumber = (delivery as Map)['invoice_number'] as String? ?? deliveryId.substring(0, 8);
+          deliveryNumbers.add(invoiceNumber);
+        }
+      }
+
+      throw Exception(
+        '⚠️ AMARAN: Invoice penghantaran berikut telah dibuat tuntutan:\n'
+        '${deliveryNumbers.join(', ')}\n\n'
+        'Tuntutan yang berkaitan: ${claimNumbers.join(', ')}\n\n'
+        'Tiada delivery baru untuk tuntutan. Sila pilih delivery yang belum dibuat tuntutan.'
+      );
     }
 
     // Get delivery items with quantities
@@ -218,7 +271,7 @@ class ConsignmentClaimsRepositorySupabase {
         'net_amount': itemNet,
         'paid_amount': 0,
         'balance_amount': itemNet,
-        'carry_forward': false,
+        'carry_forward_status': itemMetadata?[(itemMap['id'] as String)]?['carry_forward_status'] ?? 'none',
       });
     }
 
@@ -382,54 +435,6 @@ class ConsignmentClaimsRepositorySupabase {
     }
   }
 
-  Future<ConsignmentClaim> getClaimById(String claimId) async {
-    final userId = SupabaseHelper.currentUserId;
-    if (userId == null) {
-      throw Exception('User not authenticated');
-    }
-
-    // Get claim
-    final claimResponse = await supabase
-        .from('consignment_claims')
-        .select('''
-          *,
-          vendors (id, name, phone)
-        ''')
-        .eq('id', claimId)
-        .eq('business_owner_id', userId)
-        .single();
-
-    final claimJson = claimResponse as Map<String, dynamic>;
-    final vendor = claimJson['vendors'] as Map<String, dynamic>?;
-
-    // Get claim items
-    final itemsResponse = await supabase
-        .from('consignment_claim_items')
-        .select('''
-          *,
-          delivery:vendor_deliveries(invoice_number),
-          delivery_item:vendor_delivery_items(product_id, product_name)
-        ''')
-        .eq('claim_id', claimId);
-
-    final items = (itemsResponse as List).map((itemJson) {
-      final item = itemJson as Map<String, dynamic>;
-      final delivery = item['delivery'] as Map<String, dynamic>?;
-      final deliveryItem = item['delivery_item'] as Map<String, dynamic>?;
-      return {
-        ...item,
-        'delivery_number': delivery?['invoice_number'],
-        'product_id': deliveryItem?['product_id'],
-        'product_name': deliveryItem?['product_name'],
-      };
-    }).toList();
-
-    return ConsignmentClaim.fromJson({
-      ...claimJson,
-      'vendor_name': vendor?['name'],
-      'items': items,
-    });
-  }
 
   /// Update claim item quantities
   Future<ConsignmentClaim> updateClaimItemQuantities({
@@ -688,6 +693,235 @@ class ConsignmentClaimsRepositorySupabase {
       deliveryItems: deliveryItems,
       commissionRate: commissionRate,
     );
+  }
+
+  /// Update payment amount for a claim
+  /// This updates paid_amount and automatically recalculates balance_amount
+  Future<ConsignmentClaim> updateClaimPayment({
+    required String claimId,
+    required double paidAmount,
+    DateTime? paymentDate,
+    String? paymentReference,
+    String? notes,
+  }) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    // Get current claim to validate
+    final claimResponse = await supabase
+        .from('consignment_claims')
+        .select('id, net_amount, paid_amount, balance_amount, status')
+        .eq('id', claimId)
+        .eq('business_owner_id', userId)
+        .maybeSingle();
+
+    if (claimResponse == null) {
+      throw Exception('Claim not found');
+    }
+
+    final claim = claimResponse as Map<String, dynamic>;
+    final netAmount = (claim['net_amount'] as num?)?.toDouble() ?? 0.0;
+
+    // Validate paid amount doesn't exceed net amount
+    if (paidAmount > netAmount) {
+      throw Exception('Jumlah bayaran tidak boleh melebihi jumlah tuntutan (RM ${netAmount.toStringAsFixed(2)})');
+    }
+
+    // Calculate new balance
+    final newBalance = netAmount - paidAmount;
+    if (newBalance < 0) {
+      throw Exception('Jumlah bayaran tidak sah');
+    }
+
+    // Update claim with new paid amount
+    // Database trigger will automatically update balance_amount
+    final updateData = <String, dynamic>{
+      'paid_amount': paidAmount,
+      'balance_amount': newBalance,
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+
+    // Update status to settled if fully paid
+    if (paidAmount >= netAmount) {
+      updateData['status'] = 'settled';
+      updateData['settled_at'] = DateTime.now().toIso8601String();
+    } else if (paidAmount > 0 && claim['status'] == 'approved') {
+      // Keep as approved if partially paid
+      updateData['status'] = 'approved';
+    }
+
+    // Add optional fields
+    if (paymentDate != null) {
+      // Store payment date in notes or separate field if needed
+      // For now, we'll use notes field
+    }
+    if (paymentReference != null || notes != null) {
+      final existingNotes = claim['notes'] as String? ?? '';
+      final newNotes = [
+        if (existingNotes.isNotEmpty) existingNotes,
+        if (paymentReference != null) 'Rujukan: $paymentReference',
+        if (notes != null) notes,
+      ].join('\n');
+      updateData['notes'] = newNotes;
+    }
+
+    await supabase
+        .from('consignment_claims')
+        .update(updateData)
+        .eq('id', claimId)
+        .eq('business_owner_id', userId);
+
+    // Return updated claim
+    return await getClaimById(claimId);
+  }
+
+  /// Get delivery IDs that have already been claimed (approved, submitted, or settled)
+  /// Note: We exclude 'draft' status as those claims can still be edited/deleted
+  Future<Set<String>> getClaimedDeliveryIds(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    try {
+      // Get all claims for this vendor (including draft) 
+      // This prevents duplicate claims for the same delivery
+      // Draft claims can still be edited but should still block new claims for same delivery
+      final claimsResponse = await supabase
+          .from('consignment_claims')
+          .select('id, status')
+          .eq('business_owner_id', userId)
+          .eq('vendor_id', vendorId)
+          .inFilter('status', ['draft', 'submitted', 'approved', 'settled', 'rejected']);
+
+      final claims = claimsResponse as List;
+      if (claims.isEmpty) {
+        return <String>{}; // No claims, so no claimed deliveries
+      }
+
+      // Get claim IDs
+      final claimIds = claims.map((c) => (c as Map<String, dynamic>)['id'] as String).toList();
+      
+      if (claimIds.isEmpty) {
+        return <String>{};
+      }
+
+      // Get all claim items for these claims using inFilter
+      final itemsResponse = await supabase
+          .from('consignment_claim_items')
+          .select('delivery_id')
+          .inFilter('claim_id', claimIds);
+
+      // Get unique delivery IDs (filter out nulls in code)
+      final deliveryIds = <String>{};
+      for (var item in itemsResponse as List) {
+        final itemMap = item as Map<String, dynamic>;
+        final deliveryId = itemMap['delivery_id'] as String?;
+        if (deliveryId != null && deliveryId.isNotEmpty) {
+          deliveryIds.add(deliveryId);
+        }
+      }
+
+      // Debug output
+      print('🔍 Found ${claims.length} non-draft claims for vendor $vendorId');
+      print('🔍 Found ${deliveryIds.length} unique claimed delivery IDs: ${deliveryIds.toList()}');
+
+      return deliveryIds;
+    } catch (e, stackTrace) {
+      // Log error but don't throw - return empty set so UI can still work
+      // The validation in createClaim will catch duplicates anyway
+      print('⚠️ Error getting claimed delivery IDs: $e');
+      print('Stack trace: $stackTrace');
+      return <String>{};
+    }
+  }
+
+  /// Get claims by vendor ID
+  Future<List<ConsignmentClaim>> getClaimsByVendor(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    final response = await supabase
+        .from('consignment_claims')
+        .select('''
+          *,
+          vendors (id, name, phone)
+        ''')
+        .eq('business_owner_id', userId)
+        .eq('vendor_id', vendorId)
+        .order('claim_date', ascending: false);
+
+    return (response as List).map((json) {
+      final claimJson = json as Map<String, dynamic>;
+      final vendor = claimJson['vendors'] as Map<String, dynamic>?;
+      return ConsignmentClaim.fromJson({
+        ...claimJson,
+        'vendor_name': vendor?['name'],
+      });
+    }).toList();
+  }
+
+  /// Get claim by ID
+  Future<ConsignmentClaim> getClaimById(String claimId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    final response = await supabase
+        .from('consignment_claims')
+        .select('''
+          *,
+          vendors (id, name, phone),
+          consignment_claim_items (
+            *,
+            delivery:vendor_deliveries (
+              invoice_number
+            ),
+            delivery_item:vendor_delivery_items (
+              product_id,
+              product_name,
+              unit_price
+            )
+          )
+        ''')
+        .eq('id', claimId)
+        .eq('business_owner_id', userId)
+        .single();
+
+    final claimJson = response as Map<String, dynamic>;
+    final vendor = claimJson['vendors'] as Map<String, dynamic>?;
+    
+    // Process items to extract delivery_number and product_name from joins
+    final items = claimJson['consignment_claim_items'] as List<dynamic>?;
+    final processedItems = items?.map((item) {
+      final itemMap = item as Map<String, dynamic>;
+      final delivery = itemMap['delivery'] as Map<String, dynamic>?;
+      final deliveryItem = itemMap['delivery_item'] as Map<String, dynamic>?;
+      
+      // Extract product_name from delivery_item (priority) or from item itself
+      final productName = deliveryItem?['product_name'] as String? 
+          ?? itemMap['product_name'] as String?
+          ?? 'Unknown Product';
+      
+      return {
+        ...itemMap,
+        'delivery_number': delivery?['invoice_number'],
+        'product_name': productName, // Ensure product_name is set
+        'product_id': deliveryItem?['product_id'] ?? itemMap['product_id'],
+        'unit_price': deliveryItem?['unit_price'] ?? itemMap['unit_price'],
+      };
+    }).toList();
+
+    return ConsignmentClaim.fromJson({
+      ...claimJson,
+      'vendor_name': vendor?['name'],
+      'items': processedItems,
+    });
   }
 }
 

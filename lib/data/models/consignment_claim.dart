@@ -168,7 +168,7 @@ class ConsignmentClaimItem {
   final double netAmount;
   final double paidAmount;
   final double balanceAmount;
-  final bool carryForward;
+  final String carryForwardStatus;  // 'none', 'carry_forward', 'loss'
   final DateTime createdAt;
   final DateTime updatedAt;
   // Denormalized fields
@@ -193,7 +193,7 @@ class ConsignmentClaimItem {
     required this.netAmount,
     required this.paidAmount,
     required this.balanceAmount,
-    required this.carryForward,
+    required this.carryForwardStatus,
     required this.createdAt,
     required this.updatedAt,
     this.productId,
@@ -231,8 +231,8 @@ class ConsignmentClaimItem {
                 (json['paid_amount'] as num?)?.toDouble() ?? 0.0,
       balanceAmount: (json['balanceAmount'] as num?)?.toDouble() ?? 
                     (json['balance_amount'] as num?)?.toDouble() ?? 0.0,
-      carryForward: (json['carryForward'] as bool?) ?? 
-                  (json['carry_forward'] as bool?) ?? false,
+      carryForwardStatus: (json['carryForwardStatus'] as String?) ?? 
+                         (json['carry_forward_status'] as String?) ?? 'none',
       createdAt: DateTime.parse(json['createdAt'] as String? ?? json['created_at'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String? ?? json['updated_at'] as String),
       productId: json['productId'] as String? ?? json['product_id'] as String?,
@@ -259,7 +259,7 @@ class ConsignmentClaimItem {
       'netAmount': netAmount,
       'paidAmount': paidAmount,
       'balanceAmount': balanceAmount,
-      'carryForward': carryForward,
+      'carryForwardStatus': carryForwardStatus,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'productId': productId,

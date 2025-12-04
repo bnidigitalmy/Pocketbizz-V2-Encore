@@ -346,13 +346,51 @@ class _ClaimsPageState extends State<ClaimsPage> {
 
       // Filter by payment status
       if (_filterPaymentStatus != 'all') {
-        if (_filterPaymentStatus == 'pending' && claim.status != 'pending') return false;
-        if (_filterPaymentStatus == 'partial' && claim.paidAmount <= 0) return false;
-        if (_filterPaymentStatus == 'settled' && claim.status != 'paid') return false;
+        if (_filterPaymentStatus == 'pending') {
+          // Pending = balance > 0 and status approved/submitted
+          if (claim.balanceAmount <= 0 || 
+              (claim.status != ClaimStatus.approved && claim.status != ClaimStatus.submitted)) {
+            return false;
+          }
+        }
+        if (_filterPaymentStatus == 'partial') {
+          // Partial = paid > 0 but balance > 0
+          if (claim.paidAmount <= 0 || claim.balanceAmount <= 0) return false;
+        }
+        if (_filterPaymentStatus == 'settled') {
+          // Settled = balance = 0 or status = settled
+          if (claim.balanceAmount > 0 && claim.status != ClaimStatus.settled) return false;
+        }
       }
 
       return true;
     }).toList();
+  }
+
+  // Calculate summary totals
+  Map<String, double> get _summaryTotals {
+    final filtered = _filteredClaims;
+    double totalGross = 0.0;
+    double totalCommission = 0.0;
+    double totalNet = 0.0;
+    double totalPaid = 0.0;
+    double totalBalance = 0.0;
+
+    for (var claim in filtered) {
+      totalGross += claim.grossAmount;
+      totalCommission += claim.commissionAmount;
+      totalNet += claim.netAmount;
+      totalPaid += claim.paidAmount;
+      totalBalance += claim.balanceAmount;
+    }
+
+    return {
+      'gross': totalGross,
+      'commission': totalCommission,
+      'net': totalNet,
+      'paid': totalPaid,
+      'balance': totalBalance,
+    };
   }
 
   Color _getOverdueBadgeColor(int days) {
@@ -410,15 +448,15 @@ class _ClaimsPageState extends State<ClaimsPage> {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.payment),
-            tooltip: 'Rekod Bayaran',
-            onPressed: () {
-              Navigator.pushNamed(context, '/payments/create').then((_) {
-                _loadClaims(reset: true);
-              });
-            },
-          ),
+            IconButton(
+              icon: const Icon(Icons.payment),
+              tooltip: 'Rekod Bayaran',
+              onPressed: () {
+                Navigator.pushNamed(context, '/payments/record').then((_) {
+                  _loadClaims(reset: true);
+                });
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             tooltip: 'Cipta Tuntutan',
@@ -467,6 +505,12 @@ class _ClaimsPageState extends State<ClaimsPage> {
             ),
           ),
         ),
+
+        // Summary Card
+        if (_claims.isNotEmpty)
+          SliverToBoxAdapter(
+            child: _buildSummaryCard(),
+          ),
 
         // Filters
         if (_claims.isNotEmpty)
@@ -518,6 +562,155 @@ class _ClaimsPageState extends State<ClaimsPage> {
     );
   }
 
+  Widget _buildSummaryCard() {
+    final summary = _summaryTotals;
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: AppColors.primary.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.summarize, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Ringkasan Tuntutan (${_filteredClaims.length} tuntutan)',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryItem(
+                    'Jumlah Kasar',
+                    summary['gross']!,
+                    Colors.blue,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryItem(
+                    'Komisyen',
+                    summary['commission']!,
+                    Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSummaryItem(
+                    'Jumlah Bersih',
+                    summary['net']!,
+                    Colors.green,
+                    isBold: true,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSummaryItem(
+                    'Telah Dibayar',
+                    summary['paid']!,
+                    Colors.teal,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: summary['balance']! > 0 
+                    ? Colors.orange.withValues(alpha: 0.1)
+                    : Colors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: summary['balance']! > 0 
+                      ? Colors.orange
+                      : Colors.green,
+                  width: 2,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Baki Tertunggak:',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: summary['balance']! > 0 
+                          ? Colors.orange[900]
+                          : Colors.green[900],
+                    ),
+                  ),
+                  Text(
+                    'RM ${summary['balance']!.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: summary['balance']! > 0 
+                          ? Colors.orange[900]
+                          : Colors.green[900],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryItem(String label, double amount, Color color, {bool isBold = false}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[700],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'RM ${amount.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: isBold ? 16 : 14,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
+              color: Color.fromRGBO(
+                (color.red * 0.7).round(),
+                (color.green * 0.7).round(),
+                (color.blue * 0.7).round(),
+                1.0,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFilters() {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -565,7 +758,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
             child: Column(
               children: [
                 DropdownButtonFormField<String>(
-                  value: _filterVendor,
+                  initialValue: _filterVendor,
                   decoration: const InputDecoration(
                     labelText: 'Vendor',
                     border: OutlineInputBorder(),
@@ -583,7 +776,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: _filterPaymentStatus,
+                  initialValue: _filterPaymentStatus,
                   decoration: const InputDecoration(
                     labelText: 'Status Bayaran',
                     border: OutlineInputBorder(),
@@ -863,9 +1056,11 @@ class _ClaimsPageState extends State<ClaimsPage> {
                     // Navigate to claim details page
                     Navigator.pushNamed(
                       context,
-                      '/claims/details',
-                      arguments: claim,
-                    );
+                      '/claims/detail',
+                      arguments: claim.id,
+                    ).then((_) {
+                      _loadClaims(reset: true);
+                    });
                   },
                     icon: const Icon(Icons.visibility, size: 16),
                     label: const Text('Lihat Detail Produk'),

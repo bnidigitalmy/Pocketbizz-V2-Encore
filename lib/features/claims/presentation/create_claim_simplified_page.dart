@@ -10,12 +10,14 @@ import '../../../data/repositories/consignment_claims_repository_supabase.dart';
 import '../../../data/repositories/deliveries_repository_supabase.dart';
 import '../../../data/repositories/vendors_repository_supabase.dart';
 import '../../../data/repositories/business_profile_repository_supabase.dart';
+import '../../../data/repositories/carry_forward_repository_supabase.dart';
 import '../../../data/models/claim_validation_result.dart';
 import '../../../data/models/claim_summary.dart';
 import '../../../data/models/delivery.dart';
 import '../../../data/models/vendor.dart';
 import '../../../data/models/consignment_claim.dart';
 import '../../../data/models/business_profile.dart';
+import '../../../data/models/carry_forward_item.dart';
 import '../../../core/utils/pdf_generator.dart';
 import 'widgets/claim_summary_card.dart';
 
@@ -33,13 +35,19 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   final _deliveriesRepo = DeliveriesRepositorySupabase();
   final _vendorsRepo = VendorsRepositorySupabase();
   final _businessProfileRepo = BusinessProfileRepository();
+  final _carryForwardRepo = CarryForwardRepositorySupabase();
 
   // Data
   List<Vendor> _vendors = [];
   List<Delivery> _allDeliveries = [];
-  List<Delivery> _availableDeliveries = [];
+  List<Delivery> _availableDeliveries = []; // Only unclaimed deliveries
+  Set<String> _claimedDeliveryIds = {}; // Track claimed delivery IDs
+  List<Delivery> _claimedDeliveries = []; // Deliveries that have been claimed
   List<Delivery> _selectedDeliveries = [];
   List<Map<String, dynamic>> _deliveryItems = []; // Items with quantities to edit
+  List<CarryForwardItem> _availableCarryForwardItems = []; // C/F items available for this vendor
+  List<CarryForwardItem> _selectedCarryForwardItems = []; // C/F items selected for this claim
+  Map<int, String> _cfStatus = {}; // Track user's choice per item: 'none', 'carry_forward', 'loss'
 
   // State
   int _currentStep = 1;
@@ -89,25 +97,105 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     }
   }
 
-  void _onVendorSelected(String? vendorId) {
+  void _onVendorSelected(String? vendorId) async {
     setState(() {
       _selectedVendorId = vendorId;
       _selectedDeliveries = [];
+      _selectedCarryForwardItems = [];
       _claimSummary = null;
       _validationResult = null;
-
-      if (vendorId != null) {
-        _availableDeliveries = _allDeliveries
-            .where((d) => d.vendorId == vendorId && d.status == 'delivered')
-            .toList();
-      } else {
-        _availableDeliveries = [];
-      }
+      _claimedDeliveryIds = {};
+      _claimedDeliveries = [];
     });
+
+    if (vendorId != null) {
+      // Load claimed delivery IDs to track them
+      try {
+        final claimedDeliveryIds = await _claimsRepo.getClaimedDeliveryIds(vendorId);
+        
+        // Debug: Print claimed delivery IDs
+        print('🔍 Claimed delivery IDs for vendor $vendorId: ${claimedDeliveryIds.toList()}');
+        print('🔍 Total deliveries for vendor: ${_allDeliveries.where((d) => d.vendorId == vendorId && d.status == 'delivered').length}');
+        
+        if (mounted) {
+          setState(() {
+            _claimedDeliveryIds = claimedDeliveryIds;
+            
+            // Get all deliveries for vendor (both claimed and unclaimed)
+            final allDeliveriesForVendor = _allDeliveries
+                .where((d) => d.vendorId == vendorId && d.status == 'delivered')
+                .toList();
+            
+            // Separate into available and claimed
+            _availableDeliveries = allDeliveriesForVendor
+                .where((d) => !claimedDeliveryIds.contains(d.id))
+                .toList();
+            
+            _claimedDeliveries = allDeliveriesForVendor
+                .where((d) => claimedDeliveryIds.contains(d.id))
+                .toList();
+            
+            print('🔍 Available deliveries: ${_availableDeliveries.length}');
+            print('🔍 Claimed deliveries: ${_claimedDeliveries.length}');
+          });
+        }
+        
+        // Load C/F items for this vendor
+        _loadCarryForwardItems(vendorId);
+      } catch (e) {
+        // If error loading claimed IDs, show all deliveries (fallback)
+        print('⚠️ Error loading claimed delivery IDs: $e');
+        if (mounted) {
+          setState(() {
+            _availableDeliveries = _allDeliveries
+                .where((d) => d.vendorId == vendorId && d.status == 'delivered')
+                .toList();
+            _claimedDeliveries = [];
+          });
+        }
+        _loadCarryForwardItems(vendorId);
+      }
+    } else {
+      setState(() {
+        _availableDeliveries = [];
+        _claimedDeliveries = [];
+        _availableCarryForwardItems = [];
+      });
+    }
 
     if (vendorId != null && _currentStep == 1) {
       _nextStep();
     }
+  }
+
+  Future<void> _loadCarryForwardItems(String vendorId) async {
+    try {
+      final items = await _carryForwardRepo.getAvailableItemsWithDetails(vendorId: vendorId);
+      if (mounted) {
+        setState(() {
+          _availableCarryForwardItems = items;
+        });
+      }
+    } catch (e) {
+      // Silently fail - C/F items are optional
+      if (mounted) {
+        setState(() {
+          _availableCarryForwardItems = [];
+        });
+      }
+    }
+  }
+
+  void _toggleCarryForwardSelection(CarryForwardItem item) {
+    setState(() {
+      if (_selectedCarryForwardItems.any((i) => i.id == item.id)) {
+        _selectedCarryForwardItems.removeWhere((i) => i.id == item.id);
+      } else {
+        _selectedCarryForwardItems.add(item);
+      }
+      _claimSummary = null; // Reset summary when selection changes
+      _deliveryItems = []; // Reset items when selection changes
+    });
   }
 
   void _toggleDeliverySelection(Delivery delivery) {
@@ -123,12 +211,13 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   }
 
   Future<void> _loadDeliveryItems() async {
-    if (_selectedDeliveries.isEmpty) return;
+    if (_selectedDeliveries.isEmpty && _selectedCarryForwardItems.isEmpty) return;
 
     setState(() => _isLoading = true);
     try {
       final List<Map<String, dynamic>> allItems = [];
 
+      // Load items from selected deliveries
       for (var delivery in _selectedDeliveries) {
         final deliveryData = await _deliveriesRepo.getDeliveryById(delivery.id);
         if (deliveryData != null) {
@@ -144,9 +233,29 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               'quantityUnsold': item.quantityUnsold ?? 0.0,
               'quantityExpired': item.quantityExpired ?? 0.0,
               'quantityDamaged': item.quantityDamaged ?? 0.0,
+              'isCarryForward': false, // Regular delivery item
             });
           }
         }
+      }
+
+      // Add C/F items as virtual delivery items
+      for (var cfItem in _selectedCarryForwardItems) {
+        allItems.add({
+          'itemId': cfItem.sourceDeliveryItemId ?? cfItem.id, // Use source item ID if available
+          'deliveryId': cfItem.sourceDeliveryId ?? 'cf-${cfItem.id}', // Virtual delivery ID
+          'deliveryDate': cfItem.createdAt, // Use C/F creation date
+          'productName': cfItem.displayName,
+          'quantity': cfItem.quantityAvailable, // Available quantity from C/F
+          'unitPrice': cfItem.unitPrice,
+          'quantitySold': 0.0, // Start with 0, user will update
+          'quantityUnsold': 0.0, // Can be C/F again if not sold
+          'quantityExpired': 0.0,
+          'quantityDamaged': 0.0,
+          'isCarryForward': true, // Mark as C/F item
+          'carryForwardItemId': cfItem.id, // Store C/F item ID for later reference
+          'sourceClaimNumber': cfItem.originalClaimNumber,
+        });
       }
 
       if (mounted) {
@@ -283,8 +392,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   }
 
   Future<void> _validateAndCreate() async {
-    if (_selectedVendorId == null || _selectedDeliveries.isEmpty) {
-      _showError('Sila lengkapkan semua maklumat');
+    if (_selectedVendorId == null || 
+        (_selectedDeliveries.isEmpty && _selectedCarryForwardItems.isEmpty)) {
+      _showError('Sila pilih sekurang-kurangnya satu penghantaran atau item C/F');
       return;
     }
 
@@ -315,14 +425,37 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
       // Create claim
       setState(() => _isCreating = true);
+      
+      // Build item metadata with carry_forward_status
+      final itemMetadata = <String, Map<String, dynamic>>{};
+      for (var item in _deliveryItems) {
+        final itemId = item['itemId'] as String;
+        final cfStatus = _cfStatus[_deliveryItems.indexOf(item)] ?? 'none';
+        itemMetadata[itemId] = {'carry_forward_status': cfStatus};
+      }
+      
       final claim = await _claimsRepo.createClaim(
         vendorId: _selectedVendorId!,
         deliveryIds: _selectedDeliveries.map((d) => d.id).toList(),
         claimDate: _claimDate,
         notes: _notesController.text.isEmpty ? null : _notesController.text,
+        itemMetadata: itemMetadata,
       );
 
       if (mounted) {
+        // Mark C/F items as used
+        if (_selectedCarryForwardItems.isNotEmpty) {
+          try {
+            await _carryForwardRepo.markAsUsed(
+              carryForwardItemIds: _selectedCarryForwardItems.map((i) => i.id).toList(),
+              claimId: claim.id,
+            );
+          } catch (e) {
+            // Log error but don't fail the claim creation
+            print('Warning: Failed to mark C/F items as used: $e');
+          }
+        }
+
         // Load business profile and vendor info for Step 5
         final businessProfile = await _businessProfileRepo.getBusinessProfile();
         final vendor = _vendors.firstWhere((v) => v.id == _selectedVendorId);
@@ -398,9 +531,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   void _nextStep() {
     if (_currentStep < 5) {
       setState(() => _currentStep++);
-      if (_currentStep == 3 && _selectedDeliveries.isNotEmpty) {
+      if (_currentStep == 3 && (_selectedDeliveries.isNotEmpty || _selectedCarryForwardItems.isNotEmpty)) {
         _loadDeliveryItems();
-      } else if (_currentStep == 4 && _selectedDeliveries.isNotEmpty) {
+      } else if (_currentStep == 4 && (_selectedDeliveries.isNotEmpty || _selectedCarryForwardItems.isNotEmpty)) {
         _calculateSummary();
       }
     }
@@ -629,59 +762,235 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
           ),
         ),
         const SizedBox(height: 24),
-        if (_availableDeliveries.isEmpty)
+        
+        // Available Deliveries Section
+        if (_availableDeliveries.isNotEmpty)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.green[600],
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Penghantaran Belum Dituntut (${_availableDeliveries.length})',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green[700],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ..._availableDeliveries.map((delivery) {
+                final isSelected = _selectedDeliveries.any((d) => d.id == delivery.id);
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  color: isSelected ? Colors.green[50] : null,
+                  child: CheckboxListTile(
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            delivery.vendorName,
+                            style: TextStyle(
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green[100],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'Belum Dituntut',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'No. Invois: ${delivery.invoiceNumber ?? delivery.id.substring(0, 8).toUpperCase()}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${DateFormat('dd MMM yyyy', 'ms_MY').format(delivery.deliveryDate)} - RM ${delivery.totalAmount.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                    value: isSelected,
+                    onChanged: (value) => _toggleDeliverySelection(delivery),
+                    secondary: Icon(
+                      isSelected ? Icons.check_circle : Icons.circle_outlined,
+                      color: isSelected ? Colors.green[600] : Colors.grey,
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        
+        // Claimed Deliveries Section
+        if (_claimedDeliveries.isNotEmpty) ...[
+          if (_availableDeliveries.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 24),
+          ],
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[600],
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Penghantaran Sudah Dituntut (${_claimedDeliveries.length})',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Penghantaran ini sudah dibuat tuntutan dan tidak boleh dipilih lagi',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ..._claimedDeliveries.map((delivery) {
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  color: Colors.grey[100],
+                  child: ListTile(
+                    enabled: false,
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            delivery.vendorName,
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'Sudah Dituntut',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'No. Invois: ${delivery.invoiceNumber ?? delivery.id.substring(0, 8).toUpperCase()}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${DateFormat('dd MMM yyyy', 'ms_MY').format(delivery.deliveryDate)} - RM ${delivery.totalAmount.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                    leading: Icon(
+                      Icons.lock,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ],
+        
+        // No deliveries at all
+        if (_availableDeliveries.isEmpty && _claimedDeliveries.isEmpty)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  Icon(Icons.inbox, size: 48, color: Colors.grey[400]),
+                  Icon(Icons.info_outline, size: 48, color: Colors.orange[400]),
                   const SizedBox(height: 16),
                   Text(
                     'Tiada penghantaran untuk vendor ini',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.grey[600],
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange[700],
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Pastikan penghantaran sudah ditandakan sebagai "Delivered"',
+                    'Sila pilih vendor lain atau tunggu penghantaran baru.',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey[500],
+                      color: Colors.grey[600],
                     ),
                     textAlign: TextAlign.center,
                   ),
                 ],
               ),
             ),
-          )
-        else
-          ..._availableDeliveries.map((delivery) {
-            final isSelected = _selectedDeliveries.any((d) => d.id == delivery.id);
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              color: isSelected ? AppColors.primary.withOpacity(0.1) : null,
-              child: CheckboxListTile(
-                title: Text(
-                  delivery.vendorName,
-                  style: TextStyle(
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  ),
-                ),
-                subtitle: Text(
-                  '${DateFormat('dd MMM yyyy', 'ms_MY').format(delivery.deliveryDate)} - RM ${delivery.totalAmount.toStringAsFixed(2)}',
-                ),
-                value: isSelected,
-                onChanged: (value) => _toggleDeliverySelection(delivery),
-                secondary: Icon(
-                  isSelected ? Icons.check_circle : Icons.circle_outlined,
-                  color: isSelected ? AppColors.primary : Colors.grey,
-                ),
-              ),
-            );
-          }),
+          ),
         if (_selectedDeliveries.isNotEmpty) ...[
           const SizedBox(height: 16),
           Card(
@@ -705,6 +1014,97 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
             ),
           ),
+        ],
+        
+        // Carry Forward Items Section
+        if (_availableCarryForwardItems.isNotEmpty) ...[
+          const SizedBox(height: 32),
+          const Divider(),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Icon(Icons.forward, color: Colors.blue[700], size: 24),
+              const SizedBox(width: 8),
+              const Text(
+                'Item Belum Terjual (C/F) dari Tuntutan Sebelumnya',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Item yang belum terjual dari tuntutan sebelumnya boleh digunakan untuk tuntutan ini',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 16),
+          ..._availableCarryForwardItems.map((item) {
+            final isSelected = _selectedCarryForwardItems.any((i) => i.id == item.id);
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              color: isSelected ? Colors.blue[50] : null,
+              child: CheckboxListTile(
+                title: Text(
+                  item.displayName,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Kuantiti: ${item.quantityAvailable.toStringAsFixed(0)} unit @ RM ${item.unitPrice.toStringAsFixed(2)}',
+                    ),
+                    if (item.originalClaimNumber != null)
+                      Text(
+                        'Dari: ${item.originalClaimNumber}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                  ],
+                ),
+                value: isSelected,
+                onChanged: (value) => _toggleCarryForwardSelection(item),
+                secondary: Icon(
+                  isSelected ? Icons.check_circle : Icons.circle_outlined,
+                  color: isSelected ? Colors.blue[700] : Colors.grey,
+                ),
+              ),
+            );
+          }),
+          if (_selectedCarryForwardItems.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Card(
+              color: Colors.blue[50],
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[700]),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '${_selectedCarryForwardItems.length} item C/F dipilih',
+                        style: TextStyle(
+                          color: Colors.blue[700],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ],
     );
@@ -881,6 +1281,10 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                         showTooltip: true,
                         tooltipMessage: 'Carry Forward - Item ini akan dibawa ke tuntutan seterusnya',
                       ),
+                      
+                      // Carry Forward Status Selection (if unsold > 0)
+                      if (((item['quantityUnsold'] as double?) ?? 0.0) > 0)
+                        _buildCarryForwardChoices(index, item),
                     ],
                   ),
                 ),
@@ -1032,6 +1436,132 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         ),
       ],
     );
+  }
+
+  Widget _buildCarryForwardChoices(int itemIndex, Map<String, dynamic> item) {
+    final unsoldQty = (item['quantityUnsold'] as double?) ?? 0.0;
+    final currentStatus = _cfStatus[itemIndex] ?? 'none';
+    
+    return Card(
+      margin: const EdgeInsets.only(top: 16),
+      color: Colors.orange[50],
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Belum Terjual: ${unsoldQty.toStringAsFixed(1)} unit - Apa yang anda ingin buat?',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange[700],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // Option 1: Mark as Loss
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: currentStatus == 'loss' ? Colors.red : Colors.grey[300]!,
+                  width: currentStatus == 'loss' ? 2 : 1,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: RadioListTile<String>(
+                title: const Text(
+                  '🔴 Rugi (Loss/Waste)',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Item ini dianggap hilang, rosak, atau expired - tidak akan dibawa ke minggu depan',
+                  style: TextStyle(fontSize: 11),
+                ),
+                value: 'loss',
+                groupValue: currentStatus,
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _cfStatus[itemIndex] = value);
+                  }
+                },
+                tileColor: currentStatus == 'loss' ? Colors.red[50] : null,
+              ),
+            ),
+            const SizedBox(height: 8),
+            
+            // Option 2: Carry Forward
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: currentStatus == 'carry_forward' ? Colors.blue : Colors.grey[300]!,
+                  width: currentStatus == 'carry_forward' ? 2 : 1,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: RadioListTile<String>(
+                title: const Text(
+                  '🔵 Bawa ke Minggu Depan (C/F)',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Item ini akan dibawa ke tuntutan minggu depan - masih boleh dijual',
+                  style: TextStyle(fontSize: 11),
+                ),
+                value: 'carry_forward',
+                groupValue: currentStatus,
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _cfStatus[itemIndex] = value);
+                  }
+                },
+                tileColor: currentStatus == 'carry_forward' ? Colors.blue[50] : null,
+              ),
+            ),
+            const SizedBox(height: 8),
+            
+            // Status indicator
+            if (currentStatus != 'none')
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: currentStatus == 'carry_forward' ? Colors.blue[100] : Colors.red[100],
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  _getCfStatusText(currentStatus),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: currentStatus == 'carry_forward' ? Colors.blue[700] : Colors.red[700],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getCfStatusText(String status) {
+    switch (status) {
+      case 'carry_forward':
+        return '✅ Akan dibawa ke minggu depan (C/F)';
+      case 'loss':
+        return '✅ Ditandai sebagai kerugian';
+      default:
+        return '⚠️ Sila pilih status untuk item yang belum terjual';
+    }
   }
 
   Widget _buildStep4Review() {

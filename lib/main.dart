@@ -26,6 +26,9 @@ import 'features/claims/presentation/claims_page.dart';
 import 'features/claims/presentation/create_consignment_claim_page.dart';
 import 'features/claims/presentation/create_claim_simplified_page.dart';
 import 'features/claims/presentation/create_consignment_payment_page.dart';
+import 'features/claims/presentation/create_payment_simplified_page.dart';
+import 'features/claims/presentation/record_payment_page.dart';
+import 'features/claims/presentation/claim_detail_page.dart';
 import 'features/settings/presentation/settings_page.dart';
 import 'features/suppliers/presentation/suppliers_page.dart';
 import 'features/expenses/presentation/expenses_page.dart';
@@ -88,7 +91,13 @@ class PocketBizzApp extends StatelessWidget {
         '/claims': (context) => const ClaimsPage(),
         '/claims/create': (context) => const CreateClaimSimplifiedPage(), // New simplified flow
         '/claims/create-old': (context) => const CreateConsignmentClaimPage(), // Keep old for reference
-        '/payments/create': (context) => const CreateConsignmentPaymentPage(),
+        '/claims/detail': (context) {
+          final claimId = ModalRoute.of(context)!.settings.arguments as String;
+          return ClaimDetailPage(claimId: claimId);
+        },
+        '/payments/record': (context) => const RecordPaymentPage(), // New simple payment recording flow
+        '/payments/create': (context) => const CreatePaymentSimplifiedPage(), // Old simplified flow (for reference)
+        '/payments/create-old': (context) => const CreateConsignmentPaymentPage(), // Keep old for reference
         '/settings': (context) => const SettingsPage(),
         '/suppliers': (context) => const SuppliersPage(),
         '/expenses': (context) => const ExpensesPage(),
