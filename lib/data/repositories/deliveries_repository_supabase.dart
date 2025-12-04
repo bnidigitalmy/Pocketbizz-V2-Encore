@@ -260,6 +260,105 @@ class DeliveriesRepositorySupabase {
         .eq('id', itemId);
   }
 
+  /// Update delivery item quantities (sold, unsold, expired, damaged)
+  /// Used in claims flow to update quantities before creating claim
+  Future<void> updateDeliveryItemQuantities({
+    required String itemId,
+    required double quantitySold,
+    required double quantityUnsold,
+    required double quantityExpired,
+    required double quantityDamaged,
+  }) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    // Get current item to validate
+    final itemResponse = await supabase
+        .from('vendor_delivery_items')
+        .select('quantity, delivery_id')
+        .eq('id', itemId)
+        .single();
+
+    final item = itemResponse as Map<String, dynamic>;
+    final totalQuantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
+    final total = quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
+
+    // Validate quantities balance
+    if ((total - totalQuantity).abs() > 0.01) {
+      throw Exception(
+        'Jumlah kuantiti tidak sepadan. '
+        'Dihantar: ${totalQuantity.toStringAsFixed(2)}, '
+        'Jumlah: ${total.toStringAsFixed(2)}. '
+        'Sila pastikan jumlah sama dengan kuantiti dihantar.'
+      );
+    }
+
+    // Update quantities
+    await supabase
+        .from('vendor_delivery_items')
+        .update({
+          'quantity_sold': quantitySold,
+          'quantity_unsold': quantityUnsold,
+          'quantity_expired': quantityExpired,
+          'quantity_damaged': quantityDamaged,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', itemId);
+  }
+
+  /// Batch update multiple delivery items quantities
+  Future<void> batchUpdateDeliveryItemQuantities({
+    required List<Map<String, dynamic>> updates,
+  }) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    // Validate all updates first
+    for (var update in updates) {
+      final itemId = update['itemId'] as String;
+      final quantitySold = (update['quantitySold'] as num?)?.toDouble() ?? 0.0;
+      final quantityUnsold = (update['quantityUnsold'] as num?)?.toDouble() ?? 0.0;
+      final quantityExpired = (update['quantityExpired'] as num?)?.toDouble() ?? 0.0;
+      final quantityDamaged = (update['quantityDamaged'] as num?)?.toDouble() ?? 0.0;
+
+      // Get item to validate
+      final itemResponse = await supabase
+          .from('vendor_delivery_items')
+          .select('quantity')
+          .eq('id', itemId)
+          .single();
+
+      final item = itemResponse as Map<String, dynamic>;
+      final totalQuantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
+      final total = quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
+
+      if ((total - totalQuantity).abs() > 0.01) {
+        throw Exception(
+          'Item ${update['productName'] ?? itemId}: Jumlah kuantiti tidak sepadan. '
+          'Dihantar: ${totalQuantity.toStringAsFixed(2)}, Jumlah: ${total.toStringAsFixed(2)}'
+        );
+      }
+    }
+
+    // Update all items
+    for (var update in updates) {
+      await supabase
+          .from('vendor_delivery_items')
+          .update({
+            'quantity_sold': update['quantitySold'],
+            'quantity_unsold': update['quantityUnsold'],
+            'quantity_expired': update['quantityExpired'],
+            'quantity_damaged': update['quantityDamaged'],
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', update['itemId']);
+    }
+  }
+
   /// Get vendor commission info
   Future<Map<String, dynamic>?> getVendorCommission(String vendorId) async {
     try {

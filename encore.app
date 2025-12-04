@@ -20,6 +20,8 @@
 		{"id": "suppliers", "path": "./services/suppliers"},
 		{"id": "shopping", "path": "./services/shopping"},
 		{"id": "consignment", "path": "./services/consignment"},
+		{"id": "claims", "path": "./services/claims"},
+		{"id": "payments", "path": "./services/payments"},
 		{"id": "shared", "path": "./services/shared"}
 	],
 	"global_cors": {

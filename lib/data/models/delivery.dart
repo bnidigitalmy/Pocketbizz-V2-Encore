@@ -98,6 +98,11 @@ class DeliveryItem {
   final double? retailPrice;
   final double rejectedQty;
   final String? rejectionReason;
+  // Consignment quantities
+  final double? quantitySold;
+  final double? quantityUnsold;
+  final double? quantityExpired;
+  final double? quantityDamaged;
   final DateTime createdAt;
 
   DeliveryItem({
@@ -111,6 +116,10 @@ class DeliveryItem {
     this.retailPrice,
     this.rejectedQty = 0.0,
     this.rejectionReason,
+    this.quantitySold,
+    this.quantityUnsold,
+    this.quantityExpired,
+    this.quantityDamaged,
     required this.createdAt,
   });
 
@@ -128,6 +137,10 @@ class DeliveryItem {
       retailPrice: (json['retail_price'] as num?)?.toDouble(),
       rejectedQty: (json['rejected_qty'] as num?)?.toDouble() ?? 0.0,
       rejectionReason: json['rejection_reason'] as String?,
+      quantitySold: (json['quantity_sold'] as num?)?.toDouble(),
+      quantityUnsold: (json['quantity_unsold'] as num?)?.toDouble(),
+      quantityExpired: (json['quantity_expired'] as num?)?.toDouble(),
+      quantityDamaged: (json['quantity_damaged'] as num?)?.toDouble(),
       createdAt: json['created_at'] != null && json['created_at'] is String
           ? DateTime.parse(json['created_at'] as String)
           : DateTime.now(),
@@ -146,6 +159,10 @@ class DeliveryItem {
       'retail_price': retailPrice,
       'rejected_qty': rejectedQty,
       'rejection_reason': rejectionReason,
+      'quantity_sold': quantitySold,
+      'quantity_unsold': quantityUnsold,
+      'quantity_expired': quantityExpired,
+      'quantity_damaged': quantityDamaged,
       'created_at': createdAt.toIso8601String(),
     };
   }

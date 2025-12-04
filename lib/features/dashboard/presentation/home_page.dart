@@ -64,34 +64,91 @@ class _HomePageState extends State<HomePage> {
               decoration: BoxDecoration(
                 gradient: AppColors.logoGradient,
               ),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  // PocketBizz Logo
-                  const PocketBizzLogo(
-                    size: 48,
-                    showText: false,
+                  // PocketBizz Logo - Larger and better positioned
+                  Row(
+                    children: [
+                      Image.asset(
+                        'assets/images/transparentlogo2.png',
+                        width: 56,
+                        height: 56,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Image.asset(
+                            'assets/images/transparentlogo.png',
+                            width: 56,
+                            height: 56,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Image.asset(
+                                'assets/images/logo.png',
+                                width: 56,
+                                height: 56,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      gradient: AppColors.logoGradient,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: const Icon(
+                                      Icons.check_circle,
+                                      color: Colors.white,
+                                      size: 32,
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'PocketBizz',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.5,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'PocketBizz',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
                   Text(
                     supabase.auth.currentUser?.email ?? 'Guest',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 14,
+                      height: 1.2,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
+              ),
+            ),
+            // Core Operations
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'OPERASI UTAMA',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                  letterSpacing: 0.5,
+                ),
               ),
             ),
             ListTile(
@@ -126,16 +183,20 @@ class _HomePageState extends State<HomePage> {
                 setState(() => _currentIndex = 3);
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.store),
-              title: const Text('Vendors'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const VendorsPage()),
-                );
-              },
+            const Divider(),
+            
+            // Production & Inventory
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'PENGELUARAN & INVENTORI',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                  letterSpacing: 0.5,
+                ),
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.factory_rounded),
@@ -175,6 +236,21 @@ class _HomePageState extends State<HomePage> {
                 Navigator.pushNamed(context, '/shopping-list');
               },
             ),
+            const Divider(),
+            
+            // Procurement
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'PEROLEHAN',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
             ListTile(
               leading: const Icon(Icons.description),
               title: const Text('Purchase Orders'),
@@ -191,12 +267,30 @@ class _HomePageState extends State<HomePage> {
                 Navigator.pushNamed(context, '/suppliers');
               },
             ),
+            const Divider(),
+            
+            // Distribution & Partners
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'PENGEDARAN & RAKAN KONGSI',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
             ListTile(
-              leading: const Icon(Icons.receipt_long),
-              title: const Text('Expenses'),
+              leading: const Icon(Icons.store),
+              title: const Text('Vendors'),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.pushNamed(context, '/expenses');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const VendorsPage()),
+                );
               },
             ),
             ListTile(
@@ -205,6 +299,29 @@ class _HomePageState extends State<HomePage> {
               onTap: () {
                 Navigator.pop(context);
                 Navigator.pushNamed(context, '/deliveries');
+              },
+            ),
+            const Divider(),
+            
+            // Financial
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'KEWANGAN',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.receipt_long),
+              title: const Text('Expenses'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/expenses');
               },
             ),
             ListTile(

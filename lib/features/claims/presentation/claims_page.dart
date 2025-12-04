@@ -3,14 +3,18 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../data/repositories/claims_repository_supabase.dart';
+import '../../../data/repositories/consignment_claims_repository_supabase.dart';
+import '../../../data/repositories/consignment_payments_repository_supabase.dart';
 import '../../../data/repositories/deliveries_repository_supabase.dart';
 import '../../../data/repositories/vendors_repository_supabase.dart';
-import '../../../data/models/claim.dart';
+import '../../../data/models/consignment_claim.dart';
+import '../../../data/models/consignment_payment.dart';
 import '../../../data/models/delivery.dart';
 import '../../../data/models/vendor.dart';
 import 'phone_input_dialog.dart';
-import 'claim_details_dialog.dart';
+// import 'claim_details_dialog.dart'; // Commented out - will create later if needed
+import 'create_consignment_claim_page.dart';
+import 'create_consignment_payment_page.dart';
 
 /// Claims Page - Consignment System
 /// User (Consignor) buat tuntutan bayaran dari Vendor (Consignee)
@@ -31,11 +35,13 @@ class ClaimsPage extends StatefulWidget {
 }
 
 class _ClaimsPageState extends State<ClaimsPage> {
-  final _claimsRepo = ClaimsRepositorySupabase();
+  final _claimsRepo = ConsignmentClaimsRepositorySupabase();
+  final _paymentsRepo = ConsignmentPaymentsRepositorySupabase();
   final _deliveriesRepo = DeliveriesRepositorySupabase();
   final _vendorsRepo = VendorsRepositorySupabase();
 
-  List<Claim> _claims = [];
+  List<ConsignmentClaim> _claims = [];
+  List<ConsignmentPayment> _payments = [];
   List<Delivery> _deliveries = [];
   List<Vendor> _vendors = [];
   bool _isLoading = true;
@@ -93,20 +99,14 @@ class _ClaimsPageState extends State<ClaimsPage> {
 
     setState(() => _isLoadingMore = true);
     try {
-      final result = await _claimsRepo.getAllClaims(
-        limit: 20,
-        offset: _currentOffset,
-      );
+      final claims = await _claimsRepo.getAll();
+      final payments = await _paymentsRepo.getAll();
 
       if (mounted) {
         setState(() {
-          if (reset) {
-            _claims = result['data'] as List<Claim>;
-          } else {
-            _claims.addAll(result['data'] as List<Claim>);
-          }
-          _hasMore = result['hasMore'] as bool;
-          _currentOffset = _claims.length;
+          _claims = claims;
+          _payments = payments;
+          _hasMore = false; // For now, load all claims at once
           _isLoadingMore = false;
         });
       }
@@ -171,48 +171,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
     }
   }
 
-  Future<void> _handleUpdateRejection({
-    required String itemId,
-    required double rejectedQty,
-    required String? rejectionReason,
-  }) async {
-    try {
-      await _claimsRepo.updateItemRejection(
-        itemId: itemId,
-        rejectedQty: rejectedQty,
-        rejectionReason: rejectionReason,
-      );
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Expired/rosak dikemaskini. Invoice auto-adjust.'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-        // Refresh claim details if dialog is open
-        if (_selectedVendorId != null) {
-          setState(() {
-            // Force refresh by closing and reopening
-            _claimDetailsDialogOpen = false;
-          });
-          await Future.delayed(const Duration(milliseconds: 100));
-          setState(() {
-            _claimDetailsDialogOpen = true;
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
+  // Removed - no longer needed with new consignment system
 
   String? _getVendorPhone(String vendorId) {
     final vendor = _vendors.firstWhere(
@@ -250,14 +209,30 @@ class _ClaimsPageState extends State<ClaimsPage> {
     }
   }
 
-  Future<void> _shareClaimViaWhatsApp(Claim claim) async {
-    _handleWhatsAppWithPhone(claim.vendorId, claim.vendorName, (phone) async {
-      final message = '*ManisBizz - Invois Tuntutan*\n\n' +
-          'Vendor: *${claim.vendorName}*\n' +
-          'Tarikh: ${DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTime.now())}\n' +
-          'Jumlah: RM ${claim.totalAmount.toStringAsFixed(2)}\n' +
-          'Belum Bayar: RM ${claim.pendingAmount.toStringAsFixed(2)}\n' +
-          'Selesai: RM ${claim.settledAmount.toStringAsFixed(2)}\n\n' +
+  Future<void> _shareClaimViaWhatsApp(ConsignmentClaim claim) async {
+    final vendor = _vendors.firstWhere(
+      (v) => v.id == claim.vendorId,
+      orElse: () => Vendor(
+        id: '',
+        businessOwnerId: '',
+        name: 'Unknown',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    
+    _handleWhatsAppWithPhone(claim.vendorId, vendor.name, (phone) async {
+      final balanceAmount = claim.netAmount - claim.paidAmount;
+      final message = '*PocketBizz - Invois Tuntutan*\n\n' +
+          'No. Tuntutan: *${claim.claimNumber}*\n' +
+          'Vendor: *${vendor.name}*\n' +
+          'Tarikh: ${DateFormat('dd MMMM yyyy', 'ms_MY').format(claim.claimDate)}\n' +
+          'Jumlah Kasar: RM ${claim.grossAmount.toStringAsFixed(2)}\n' +
+          'Komisyen (${claim.commissionRate}%): RM ${claim.commissionAmount.toStringAsFixed(2)}\n' +
+          'Jumlah Bersih: RM ${claim.netAmount.toStringAsFixed(2)}\n' +
+          'Dibayar: RM ${claim.paidAmount.toStringAsFixed(2)}\n' +
+          'Baki: RM ${balanceAmount.toStringAsFixed(2)}\n\n' +
+          'Status: ${claim.status == 'paid' ? '✅ Selesai' : claim.paidAmount > 0 ? '⏳ Separa Bayar' : '⏰ Belum Bayar'}\n\n' +
           'Sila lihat penyata lengkap untuk butiran.';
 
       final whatsappUrl = 'https://wa.me/${phone.replaceAll(RegExp(r'[^\d]'), '')}?text=${Uri.encodeComponent(message)}';
@@ -267,7 +242,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ WhatsApp dibuka untuk ${claim.vendorName}'),
+              content: Text('✅ WhatsApp dibuka untuk ${vendor.name}'),
               backgroundColor: AppColors.success,
             ),
           );
@@ -285,13 +260,26 @@ class _ClaimsPageState extends State<ClaimsPage> {
     });
   }
 
-  Future<void> _sendPaymentReminder(Claim claim) async {
-    _handleWhatsAppWithPhone(claim.vendorId, claim.vendorName, (phone) async {
-      final outstandingAmount = claim.pendingAmount + claim.partialAmount;
-      final message = '*Peringatan Bayaran - ManisBizz*\n\n' +
-          'Kepada: *${claim.vendorName}*\n\n' +
-          'Baki tertunggak: RM ${outstandingAmount.toStringAsFixed(2)}\n' +
-          'Hari lewat: ${claim.daysOverdue} hari\n\n' +
+  Future<void> _sendPaymentReminder(ConsignmentClaim claim) async {
+    final vendor = _vendors.firstWhere(
+      (v) => v.id == claim.vendorId,
+      orElse: () => Vendor(
+        id: '',
+        businessOwnerId: '',
+        name: 'Unknown',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    
+    _handleWhatsAppWithPhone(claim.vendorId, vendor.name, (phone) async {
+      final balanceAmount = claim.netAmount - claim.paidAmount;
+      final daysOverdue = DateTime.now().difference(claim.claimDate).inDays;
+      final message = '*Peringatan Bayaran - PocketBizz*\n\n' +
+          'Kepada: *${vendor.name}*\n\n' +
+          'No. Tuntutan: ${claim.claimNumber}\n' +
+          'Baki tertunggak: RM ${balanceAmount.toStringAsFixed(2)}\n' +
+          'Hari lewat: ${daysOverdue} hari\n\n' +
           'Sila selesaikan pembayaran segera. Terima kasih!';
 
       final whatsappUrl = 'https://wa.me/${phone.replaceAll(RegExp(r'[^\d]'), '')}?text=${Uri.encodeComponent(message)}';
@@ -301,7 +289,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ Peringatan bayaran dihantar kepada ${claim.vendorName}'),
+              content: Text('✅ Peringatan bayaran dihantar kepada ${vendor.name}'),
               backgroundColor: AppColors.success,
             ),
           );
@@ -349,7 +337,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
     );
   }
 
-  List<Claim> get _filteredClaims {
+  List<ConsignmentClaim> get _filteredClaims {
     return _claims.where((claim) {
       // Filter by vendor
       if (_filterVendor != 'all' && claim.vendorId != _filterVendor) {
@@ -358,11 +346,9 @@ class _ClaimsPageState extends State<ClaimsPage> {
 
       // Filter by payment status
       if (_filterPaymentStatus != 'all') {
-        final vendorDeliveries = _deliveries.where((d) => d.vendorId == claim.vendorId).toList();
-        final hasMatchingStatus = vendorDeliveries.any((d) => d.paymentStatus == _filterPaymentStatus);
-        if (!hasMatchingStatus) {
-          return false;
-        }
+        if (_filterPaymentStatus == 'pending' && claim.status != 'pending') return false;
+        if (_filterPaymentStatus == 'partial' && claim.paidAmount <= 0) return false;
+        if (_filterPaymentStatus == 'settled' && claim.status != 'paid') return false;
       }
 
       return true;
@@ -405,35 +391,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
           }
         });
       }
-      if (_claimDetailsDialogOpen && _selectedVendorId != null) {
-        showDialog(
-          context: context,
-          builder: (context) => ClaimDetailsDialog(
-            vendorId: _selectedVendorId!,
-            claimsRepo: _claimsRepo,
-            deliveriesRepo: _deliveriesRepo,
-            vendors: _vendors,
-            onUpdateRejection: _handleUpdateRejection,
-            onUpdatePaymentStatus: _handleUpdatePaymentStatus,
-            onClose: () {
-              if (mounted) {
-                setState(() {
-                  _claimDetailsDialogOpen = false;
-                  _selectedVendorId = null;
-                });
-                _loadClaims(reset: true);
-              }
-            },
-          ),
-        ).then((_) {
-          if (mounted) {
-            setState(() {
-              _claimDetailsDialogOpen = false;
-              _selectedVendorId = null;
-            });
-          }
-        });
-      }
+      // Claim details dialog removed - using navigation instead
     });
 
     return Scaffold(
@@ -442,7 +400,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Bayaran Vendor'),
+            Text('Tuntutan & Bayaran'),
             Text(
               'Track payment invoice vendor & update expired/rosak',
               style: TextStyle(fontSize: 12),
@@ -451,6 +409,26 @@ class _ClaimsPageState extends State<ClaimsPage> {
         ),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.payment),
+            tooltip: 'Rekod Bayaran',
+            onPressed: () {
+              Navigator.pushNamed(context, '/payments/create').then((_) {
+                _loadClaims(reset: true);
+              });
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'Cipta Tuntutan',
+            onPressed: () {
+              Navigator.pushNamed(context, '/claims/create').then((_) {
+                _loadClaims(reset: true);
+              });
+            },
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(
@@ -594,9 +572,9 @@ class _ClaimsPageState extends State<ClaimsPage> {
                   ),
                   items: [
                     const DropdownMenuItem(value: 'all', child: Text('Semua Vendor')),
-                    ..._claims.map((claim) => DropdownMenuItem(
-                          value: claim.vendorId,
-                          child: Text(claim.vendorName),
+                    ..._vendors.map((vendor) => DropdownMenuItem(
+                          value: vendor.id,
+                          child: Text(vendor.name),
                         )),
                   ],
                   onChanged: (value) {
@@ -721,8 +699,21 @@ class _ClaimsPageState extends State<ClaimsPage> {
     );
   }
 
-  Widget _buildClaimCard(Claim claim) {
-    final hasOutstanding = claim.pendingAmount > 0 || claim.partialAmount > 0;
+  Widget _buildClaimCard(ConsignmentClaim claim) {
+    final vendor = _vendors.firstWhere(
+      (v) => v.id == claim.vendorId,
+      orElse: () => Vendor(
+        id: '',
+        businessOwnerId: '',
+        name: 'Unknown',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    
+    final balanceAmount = claim.netAmount - claim.paidAmount;
+    final hasOutstanding = balanceAmount > 0;
+    final daysOverdue = hasOutstanding ? DateTime.now().difference(claim.claimDate).inDays : 0;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -739,43 +730,55 @@ class _ClaimsPageState extends State<ClaimsPage> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          claim.vendorName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              claim.claimNumber,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              vendor.name,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (hasOutstanding && claim.daysOverdue > 0)
+                      if (hasOutstanding && daysOverdue > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: _getOverdueBadgeColor(claim.daysOverdue).withOpacity(0.1),
+                            color: _getOverdueBadgeColor(daysOverdue).withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: _getOverdueBadgeColor(claim.daysOverdue).withOpacity(0.3),
+                              color: _getOverdueBadgeColor(daysOverdue).withOpacity(0.3),
                             ),
                           ),
                           child: Text(
-                            '${claim.daysOverdue} hari',
+                            '$daysOverdue hari',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
-                              color: _getOverdueBadgeColor(claim.daysOverdue),
+                              color: _getOverdueBadgeColor(daysOverdue),
                             ),
                           ),
                         ),
                     ],
                   ),
                 ),
-                Icon(Icons.attach_money, size: 20, color: Colors.grey[600]),
+                Icon(Icons.receipt_long, size: 20, color: Colors.grey[600]),
               ],
             ),
             const SizedBox(height: 12),
-            // Total amount
+            // Net amount
             Text(
-              'RM ${claim.totalAmount.toStringAsFixed(2)}',
+              'RM ${claim.netAmount.toStringAsFixed(2)}',
               style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -783,7 +786,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
               ),
             ),
             Text(
-              '${claim.totalDeliveries} penghantaran',
+              'Selepas komisyen ${claim.commissionRate}% (RM ${claim.commissionAmount.toStringAsFixed(2)})',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
             const SizedBox(height: 12),
@@ -797,34 +800,33 @@ class _ClaimsPageState extends State<ClaimsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Belum Bayar:',
+                      'Jumlah Kasar:',
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
                     Text(
-                      'RM ${claim.pendingAmount.toStringAsFixed(2)}',
+                      'RM ${claim.grossAmount.toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
-                        color: Colors.orange,
                         fontFeatures: [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
                 ),
-                if (claim.partialAmount > 0)
+                if (claim.paidAmount > 0)
                   Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(
-                        'Separa:',
+                        'Dibayar:',
                         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                       Text(
-                        'RM ${claim.partialAmount.toStringAsFixed(2)}',
+                        'RM ${claim.paidAmount.toStringAsFixed(2)}',
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: Colors.blue,
+                          color: Colors.green,
                           fontFeatures: [FontFeature.tabularFigures()],
                         ),
                       ),
@@ -834,16 +836,16 @@ class _ClaimsPageState extends State<ClaimsPage> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      'Selesai:',
+                      'Baki:',
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
                     Text(
-                      'RM ${claim.settledAmount.toStringAsFixed(2)}',
-                      style: const TextStyle(
+                      'RM ${balanceAmount.toStringAsFixed(2)}',
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                        color: balanceAmount > 0 ? Colors.orange : Colors.green,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -857,12 +859,14 @@ class _ClaimsPageState extends State<ClaimsPage> {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _selectedVendorId = claim.vendorId;
-                        _claimDetailsDialogOpen = true;
-                      });
-                    },
+                  onPressed: () {
+                    // Navigate to claim details page
+                    Navigator.pushNamed(
+                      context,
+                      '/claims/details',
+                      arguments: claim,
+                    );
+                  },
                     icon: const Icon(Icons.visibility, size: 16),
                     label: const Text('Lihat Detail Produk'),
                   ),
@@ -872,7 +876,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _generateClaimStatement(claim.vendorId, claim.vendorName),
+                        onPressed: () => _generateClaimStatement(claim.vendorId, vendor.name),
                         icon: const Icon(Icons.description, size: 16),
                         label: const Text('Penyata'),
                       ),
@@ -880,7 +884,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _generateThermalClaimStatement(claim.vendorId, claim.vendorName),
+                        onPressed: () => _generateThermalClaimStatement(claim.vendorId, vendor.name),
                         icon: const Icon(Icons.print, size: 16),
                         label: const Text('Thermal'),
                       ),
@@ -898,8 +902,8 @@ class _ClaimsPageState extends State<ClaimsPage> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.green,
                         ),
+                        ),
                       ),
-                    ),
                     if (hasOutstanding) ...[
                       const SizedBox(width: 8),
                       Expanded(
@@ -908,7 +912,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
                           icon: const Icon(Icons.notifications, size: 16),
                           label: const Text('Ingatkan'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: claim.daysOverdue > 14 ? Colors.red : AppColors.primary,
+                            backgroundColor: daysOverdue > 14 ? Colors.red : AppColors.primary,
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -990,8 +994,7 @@ class _ClaimsPageState extends State<ClaimsPage> {
                     ],
                   ),
                 ),
-                SizedBox(
-                  width: 150,
+                Flexible(
                   child: Column(
                     children: [
                       _buildPaymentStatusBadge(delivery.paymentStatus ?? 'pending'),
@@ -1001,12 +1004,13 @@ class _ClaimsPageState extends State<ClaimsPage> {
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         ),
+                        isExpanded: true,
                         items: const [
-                          DropdownMenuItem(value: 'pending', child: Text('Belum Bayar')),
-                          DropdownMenuItem(value: 'partial', child: Text('Bayar Separa')),
-                          DropdownMenuItem(value: 'settled', child: Text('Selesai')),
+                          DropdownMenuItem(value: 'pending', child: Text('Belum Bayar', overflow: TextOverflow.ellipsis)),
+                          DropdownMenuItem(value: 'partial', child: Text('Bayar Separa', overflow: TextOverflow.ellipsis)),
+                          DropdownMenuItem(value: 'settled', child: Text('Selesai', overflow: TextOverflow.ellipsis)),
                         ],
                         onChanged: (value) {
                           if (value != null) {

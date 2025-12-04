@@ -51,6 +51,7 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
   }
 
   Future<void> _loadAllData() async {
+    if (!mounted) return;
     setState(() => _loading = true);
 
     try {
@@ -60,6 +61,8 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
         _loadTodaySalesStats(),
         _loadPendingTasks(),
       ]);
+
+      if (!mounted) return; // Check again after async operations
 
       // Merge pending tasks into todayStats
       final pendingTasks = results[2] as Map<String, dynamic>;
@@ -75,6 +78,7 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
