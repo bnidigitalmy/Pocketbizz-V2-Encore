@@ -333,9 +333,12 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
     setState(() => _isSavingQuantities = true);
     try {
-      final updates = _deliveryItems.map((item) {
+      // Only update delivery items (not C/F items which don't have delivery_item records)
+      final updates = _deliveryItems
+          .where((item) => item['deliveryItemId'] != null) // Only regular delivery items
+          .map((item) {
         return <String, dynamic>{
-          'itemId': item['itemId'],
+          'itemId': item['deliveryItemId'],
           'productName': item['productName'],
           'quantitySold': item['quantitySold'],
           'quantityUnsold': item['quantityUnsold'],
@@ -344,7 +347,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         };
       }).toList();
 
-      await _deliveriesRepo.batchUpdateDeliveryItemQuantities(updates: updates);
+      if (updates.isNotEmpty) {
+        await _deliveriesRepo.batchUpdateDeliveryItemQuantities(updates: updates);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
