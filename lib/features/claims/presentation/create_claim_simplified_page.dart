@@ -1811,7 +1811,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
-                  children: _deliveryItems.map((item) {
+                  children: _deliveryItems
+                      .where((item) => item['isCarryForward'] != true) // Only show regular delivery items, not C/F
+                      .map((item) {
                     final sold = item['quantitySold'] as double;
                     final unitPrice = item['unitPrice'] as double;
                     final itemValue = sold * unitPrice;
