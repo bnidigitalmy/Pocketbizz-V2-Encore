@@ -153,3 +153,5 @@ Terjual = Total Quantity - Expired - Rosak - Carry Forward
 
 
 
+
+

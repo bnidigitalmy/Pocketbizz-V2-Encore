@@ -38,7 +38,8 @@ class ConsignmentClaimsRepositorySupabase {
     }
 
     // Verify all deliveries are for the same vendor
-    final vendorIds = deliveries.map((d) => (d as Map)['vendor_id'] as String).toSet();
+    final vendorIds =
+        deliveries.map((d) => (d as Map)['vendor_id'] as String).toSet();
     if (vendorIds.length > 1 || !vendorIds.contains(vendorId)) {
       throw Exception('All deliveries must be for the same vendor');
     }
@@ -56,19 +57,20 @@ class ConsignmentClaimsRepositorySupabase {
           )
         ''')
         .filter('delivery_id', 'in', _buildInFilter(deliveryIds))
-        .inFilter('claim.status', ['draft', 'submitted', 'approved', 'settled', 'rejected']);
+        .inFilter('claim.status',
+            ['draft', 'submitted', 'approved', 'settled', 'rejected']);
 
     final existingClaims = existingClaimsResponse as List;
     if (existingClaims.isNotEmpty) {
       final claimedDeliveryIds = <String>{};
       final claimNumbers = <String>{};
-      
+
       for (var item in existingClaims) {
         final itemMap = item as Map<String, dynamic>;
         final deliveryId = itemMap['delivery_id'] as String;
         final claim = itemMap['claim'] as Map<String, dynamic>;
         final claimNumber = claim['claim_number'] as String;
-        
+
         claimedDeliveryIds.add(deliveryId);
         claimNumbers.add(claimNumber);
       }
@@ -80,17 +82,18 @@ class ConsignmentClaimsRepositorySupabase {
           orElse: () => null,
         );
         if (delivery != null) {
-          final invoiceNumber = (delivery as Map)['invoice_number'] as String? ?? deliveryId.substring(0, 8);
+          final invoiceNumber =
+              (delivery as Map)['invoice_number'] as String? ??
+                  deliveryId.substring(0, 8);
           deliveryNumbers.add(invoiceNumber);
         }
       }
 
       throw Exception(
-        '⚠️ AMARAN: Invoice penghantaran berikut telah dibuat tuntutan:\n'
-        '${deliveryNumbers.join(', ')}\n\n'
-        'Tuntutan yang berkaitan: ${claimNumbers.join(', ')}\n\n'
-        'Tiada delivery baru untuk tuntutan. Sila pilih delivery yang belum dibuat tuntutan.'
-      );
+          '⚠️ AMARAN: Invoice penghantaran berikut telah dibuat tuntutan:\n'
+          '${deliveryNumbers.join(', ')}\n\n'
+          'Tuntutan yang berkaitan: ${claimNumbers.join(', ')}\n\n'
+          'Tiada delivery baru untuk tuntutan. Sila pilih delivery yang belum dibuat tuntutan.');
     }
 
     // Get delivery items with quantities
@@ -129,8 +132,7 @@ class ConsignmentClaimsRepositorySupabase {
           needsUpdate = true;
         } else {
           throw Exception(
-            'Quantities exceed delivered for item $itemId: delivered=$quantity, sum=$total'
-          );
+              'Quantities exceed delivered for item $itemId: delivered=$quantity, sum=$total');
         }
       }
 
@@ -146,12 +148,9 @@ class ConsignmentClaimsRepositorySupabase {
     // Batch update delivery items with balanced quantities
     if (itemsToUpdate.isNotEmpty) {
       for (var update in itemsToUpdate) {
-        await supabase
-            .from('vendor_delivery_items')
-            .update({
-              'quantity_unsold': update['quantity_unsold'],
-            })
-            .eq('id', update['id']);
+        await supabase.from('vendor_delivery_items').update({
+          'quantity_unsold': update['quantity_unsold'],
+        }).eq('id', update['id']);
       }
     }
 
@@ -163,7 +162,9 @@ class ConsignmentClaimsRepositorySupabase {
         .eq('business_owner_id', userId)
         .maybeSingle();
 
-    final commissionRate = (vendorResponse as Map<String, dynamic>?)?['default_commission_rate'] as num? ?? 0.0;
+    final commissionRate = (vendorResponse
+            as Map<String, dynamic>?)?['default_commission_rate'] as num? ??
+        0.0;
 
     // Calculate amounts
     double grossAmount = 0.0;
@@ -182,7 +183,7 @@ class ConsignmentClaimsRepositorySupabase {
     Map<String, dynamic>? claimResponse;
     int retries = 5; // Increase retries
     Exception? lastError;
-    
+
     while (retries > 0) {
       try {
         claimResponse = await supabase
@@ -203,23 +204,24 @@ class ConsignmentClaimsRepositorySupabase {
             })
             .select()
             .single() as Map<String, dynamic>;
-        
+
         // Success - break retry loop
         break;
       } catch (e) {
         lastError = e is Exception ? e : Exception(e.toString());
         final errorStr = e.toString().toLowerCase();
-        
+
         // Check for duplicate key error - Supabase returns 409 Conflict
         // Check multiple patterns: duplicate key, 23505, 409, claim_number_key, conflict
         // Also check for PostgrestException which Supabase uses
-        final isDuplicateError = errorStr.contains('duplicate key') || 
+        final isDuplicateError = errorStr.contains('duplicate key') ||
             errorStr.contains('23505') ||
             errorStr.contains('409') ||
             errorStr.contains('claim_number') ||
             errorStr.contains('conflict') ||
-            (e.toString().contains('PostgrestException') && errorStr.contains('unique'));
-        
+            (e.toString().contains('PostgrestException') &&
+                errorStr.contains('unique'));
+
         if (isDuplicateError) {
           retries--;
           if (retries > 0) {
@@ -229,16 +231,18 @@ class ConsignmentClaimsRepositorySupabase {
             continue; // Retry
           } else {
             // All retries exhausted - throw user-friendly error
-            throw Exception('Gagal mencipta tuntutan selepas beberapa percubaan. Nombor tuntutan mungkin konflik. Sila cuba lagi dalam beberapa saat.');
+            throw Exception(
+                'Gagal mencipta tuntutan selepas beberapa percubaan. Nombor tuntutan mungkin konflik. Sila cuba lagi dalam beberapa saat.');
           }
         }
         // If not duplicate key error, throw immediately
         rethrow;
       }
     }
-    
+
     if (claimResponse == null) {
-      throw Exception('Gagal mencipta tuntutan: ${lastError?.toString() ?? "Ralat tidak diketahui"}');
+      throw Exception(
+          'Gagal mencipta tuntutan: ${lastError?.toString() ?? "Ralat tidak diketahui"}');
     }
 
     final claimId = claimResponse['id'] as String;
@@ -271,8 +275,13 @@ class ConsignmentClaimsRepositorySupabase {
         'net_amount': itemNet,
         'paid_amount': 0,
         'balance_amount': itemNet,
-        'carry_forward_status': itemMetadata?[(itemMap['id'] as String)]?['carry_forward_status'] ?? 'none',
-        'carry_forward': (itemMetadata?[(itemMap['id'] as String)]?['carry_forward_status'] ?? 'none') == 'carry_forward',
+        'carry_forward_status': itemMetadata?[(itemMap['id'] as String)]
+                ?['carry_forward_status'] ??
+            'none',
+        'carry_forward': (itemMetadata?[(itemMap['id'] as String)]
+                    ?['carry_forward_status'] ??
+                'none') ==
+            'carry_forward',
       });
     }
 
@@ -358,13 +367,10 @@ class ConsignmentClaimsRepositorySupabase {
       throw Exception('User not authenticated');
     }
 
-    var query = supabase
-        .from('consignment_claims')
-        .select('''
+    var query = supabase.from('consignment_claims').select('''
           *,
           vendors (id, name, phone)
-        ''')
-        .eq('business_owner_id', userId);
+        ''').eq('business_owner_id', userId);
 
     if (vendorId != null) {
       query = query.eq('vendor_id', vendorId);
@@ -422,20 +428,19 @@ class ConsignmentClaimsRepositorySupabase {
       return (response as List).map((json) {
         final claimJson = json as Map<String, dynamic>;
         final vendor = claimJson['vendors'] as Map<String, dynamic>?;
-        
+
         // Flatten vendor data into claim JSON
         if (vendor != null) {
           claimJson['vendor_name'] = vendor['name'] as String? ?? '';
           claimJson['vendor_phone'] = vendor['phone'] as String?;
         }
-        
+
         return ConsignmentClaim.fromJson(claimJson);
       }).toList();
     } catch (e) {
       throw Exception('Failed to get claims: $e');
     }
   }
-
 
   /// Update claim item quantities
   Future<ConsignmentClaim> updateClaimItemQuantities({
@@ -460,11 +465,14 @@ class ConsignmentClaimsRepositorySupabase {
         .single();
 
     final item = itemResponse as Map<String, dynamic>;
-    final quantityDelivered = (item['quantity_delivered'] as num?)?.toDouble() ?? 0.0;
-    final total = quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
+    final quantityDelivered =
+        (item['quantity_delivered'] as num?)?.toDouble() ?? 0.0;
+    final total =
+        quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
 
     if ((total - quantityDelivered).abs() > 0.01) {
-      throw Exception('Quantities don\'t balance: delivered=$quantityDelivered, sum=$total');
+      throw Exception(
+          'Quantities don\'t balance: delivered=$quantityDelivered, sum=$total');
     }
 
     // Update item
@@ -475,19 +483,16 @@ class ConsignmentClaimsRepositorySupabase {
     final itemNet = itemGross - itemCommission;
     final paidAmount = (item['paid_amount'] as num?)?.toDouble() ?? 0.0;
 
-    await supabase
-        .from('consignment_claim_items')
-        .update({
-          'quantity_sold': quantitySold,
-          'quantity_unsold': quantityUnsold,
-          'quantity_expired': quantityExpired,
-          'quantity_damaged': quantityDamaged,
-          'gross_amount': itemGross,
-          'commission_amount': itemCommission,
-          'net_amount': itemNet,
-          'balance_amount': itemNet - paidAmount,
-        })
-        .eq('id', itemId);
+    await supabase.from('consignment_claim_items').update({
+      'quantity_sold': quantitySold,
+      'quantity_unsold': quantityUnsold,
+      'quantity_expired': quantityExpired,
+      'quantity_damaged': quantityDamaged,
+      'gross_amount': itemGross,
+      'commission_amount': itemCommission,
+      'net_amount': itemNet,
+      'balance_amount': itemNet - paidAmount,
+    }).eq('id', itemId);
 
     // Recalculate claim totals
     final allItemsResponse = await supabase
@@ -504,20 +509,18 @@ class ConsignmentClaimsRepositorySupabase {
     for (var item in allItems) {
       final itemMap = item as Map<String, dynamic>;
       totalGross += (itemMap['gross_amount'] as num?)?.toDouble() ?? 0.0;
-      totalCommission += (itemMap['commission_amount'] as num?)?.toDouble() ?? 0.0;
+      totalCommission +=
+          (itemMap['commission_amount'] as num?)?.toDouble() ?? 0.0;
       totalNet += (itemMap['net_amount'] as num?)?.toDouble() ?? 0.0;
       totalPaid += (itemMap['paid_amount'] as num?)?.toDouble() ?? 0.0;
     }
 
-    await supabase
-        .from('consignment_claims')
-        .update({
-          'gross_amount': totalGross,
-          'commission_amount': totalCommission,
-          'net_amount': totalNet,
-          'balance_amount': totalNet - totalPaid,
-        })
-        .eq('id', claimId);
+    await supabase.from('consignment_claims').update({
+      'gross_amount': totalGross,
+      'commission_amount': totalCommission,
+      'net_amount': totalNet,
+      'balance_amount': totalNet - totalPaid,
+    }).eq('id', claimId);
 
     return await getClaimById(claimId);
   }
@@ -586,7 +589,8 @@ class ConsignmentClaimsRepositorySupabase {
     }
 
     // Check all deliveries are for same vendor
-    final vendorIds = deliveries.map((d) => (d as Map)['vendor_id'] as String).toSet();
+    final vendorIds =
+        deliveries.map((d) => (d as Map)['vendor_id'] as String).toSet();
     if (vendorIds.length > 1 || !vendorIds.contains(vendorId)) {
       errors.add('Semua penghantaran mesti untuk vendor yang sama');
       return ClaimValidationResult(isValid: false, errors: errors);
@@ -600,13 +604,17 @@ class ConsignmentClaimsRepositorySupabase {
 
     final deliveryItems = itemsResponse as List;
     final itemsWithSold = deliveryItems.where((item) {
-      final sold = ((item as Map<String, dynamic>)['quantity_sold'] as num?)?.toDouble() ?? 0.0;
+      final sold = ((item as Map<String, dynamic>)['quantity_sold'] as num?)
+              ?.toDouble() ??
+          0.0;
       return sold > 0;
     }).toList();
 
     if (itemsWithSold.isEmpty) {
-      errors.add('Tiada produk yang terjual untuk dituntut. Sila pastikan vendor telah update kuantiti terjual.');
-      warnings.add('Tip: Vendor perlu update kuantiti terjual dalam sistem sebelum anda boleh buat tuntutan');
+      errors.add(
+          'Tiada produk yang terjual untuk dituntut. Sila pastikan vendor telah update kuantiti terjual.');
+      warnings.add(
+          'Tip: Vendor perlu update kuantiti terjual dalam sistem sebelum anda boleh buat tuntutan');
       return ClaimValidationResult(
         isValid: false,
         errors: errors,
@@ -643,7 +651,10 @@ class ConsignmentClaimsRepositorySupabase {
         .eq('business_owner_id', userId)
         .maybeSingle();
 
-    final commissionRate = ((vendorResponse as Map<String, dynamic>?)?['default_commission_rate'] as num?)?.toDouble() ?? 0.0;
+    final commissionRate = ((vendorResponse
+                as Map<String, dynamic>?)?['default_commission_rate'] as num?)
+            ?.toDouble() ??
+        0.0;
 
     // Get delivery items
     final itemsResponse = await supabase
@@ -727,7 +738,8 @@ class ConsignmentClaimsRepositorySupabase {
 
     // Validate paid amount doesn't exceed net amount
     if (paidAmount > netAmount) {
-      throw Exception('Jumlah bayaran tidak boleh melebihi jumlah tuntutan (RM ${netAmount.toStringAsFixed(2)})');
+      throw Exception(
+          'Jumlah bayaran tidak boleh melebihi jumlah tuntutan (RM ${netAmount.toStringAsFixed(2)})');
     }
 
     // Calculate new balance
@@ -787,7 +799,7 @@ class ConsignmentClaimsRepositorySupabase {
     }
 
     try {
-      // Get all claims for this vendor (including draft) 
+      // Get all claims for this vendor (including draft)
       // This prevents duplicate claims for the same delivery
       // Draft claims can still be edited but should still block new claims for same delivery
       final claimsResponse = await supabase
@@ -795,7 +807,8 @@ class ConsignmentClaimsRepositorySupabase {
           .select('id, status')
           .eq('business_owner_id', userId)
           .eq('vendor_id', vendorId)
-          .inFilter('status', ['draft', 'submitted', 'approved', 'settled', 'rejected']);
+          .inFilter('status',
+              ['draft', 'submitted', 'approved', 'settled', 'rejected']);
 
       final claims = claimsResponse as List;
       if (claims.isEmpty) {
@@ -803,8 +816,10 @@ class ConsignmentClaimsRepositorySupabase {
       }
 
       // Get claim IDs
-      final claimIds = claims.map((c) => (c as Map<String, dynamic>)['id'] as String).toList();
-      
+      final claimIds = claims
+          .map((c) => (c as Map<String, dynamic>)['id'] as String)
+          .toList();
+
       if (claimIds.isEmpty) {
         return <String>{};
       }
@@ -827,7 +842,8 @@ class ConsignmentClaimsRepositorySupabase {
 
       // Debug output
       print('🔍 Found ${claims.length} non-draft claims for vendor $vendorId');
-      print('🔍 Found ${deliveryIds.length} unique claimed delivery IDs: ${deliveryIds.toList()}');
+      print(
+          '🔍 Found ${deliveryIds.length} unique claimed delivery IDs: ${deliveryIds.toList()}');
 
       return deliveryIds;
     } catch (e, stackTrace) {
@@ -873,9 +889,7 @@ class ConsignmentClaimsRepositorySupabase {
       throw Exception('User not authenticated');
     }
 
-    final response = await supabase
-        .from('consignment_claims')
-        .select('''
+    final response = await supabase.from('consignment_claims').select('''
           *,
           vendors (id, name, phone),
           consignment_claim_items (
@@ -889,26 +903,23 @@ class ConsignmentClaimsRepositorySupabase {
               unit_price
             )
           )
-        ''')
-        .eq('id', claimId)
-        .eq('business_owner_id', userId)
-        .single();
+        ''').eq('id', claimId).eq('business_owner_id', userId).single();
 
     final claimJson = response as Map<String, dynamic>;
     final vendor = claimJson['vendors'] as Map<String, dynamic>?;
-    
+
     // Process items to extract delivery_number and product_name from joins
     final items = claimJson['consignment_claim_items'] as List<dynamic>?;
     final processedItems = items?.map((item) {
       final itemMap = item as Map<String, dynamic>;
       final delivery = itemMap['delivery'] as Map<String, dynamic>?;
       final deliveryItem = itemMap['delivery_item'] as Map<String, dynamic>?;
-      
+
       // Extract product_name from delivery_item (priority) or from item itself
-      final productName = deliveryItem?['product_name'] as String? 
-          ?? itemMap['product_name'] as String?
-          ?? 'Unknown Product';
-      
+      final productName = deliveryItem?['product_name'] as String? ??
+          itemMap['product_name'] as String? ??
+          'Unknown Product';
+
       return {
         ...itemMap,
         'delivery_number': delivery?['invoice_number'],
@@ -925,4 +936,3 @@ class ConsignmentClaimsRepositorySupabase {
     });
   }
 }
-

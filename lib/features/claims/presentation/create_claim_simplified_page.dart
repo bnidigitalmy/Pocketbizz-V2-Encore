@@ -27,7 +27,8 @@ class CreateClaimSimplifiedPage extends StatefulWidget {
   const CreateClaimSimplifiedPage({super.key});
 
   @override
-  State<CreateClaimSimplifiedPage> createState() => _CreateClaimSimplifiedPageState();
+  State<CreateClaimSimplifiedPage> createState() =>
+      _CreateClaimSimplifiedPageState();
 }
 
 class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
@@ -44,10 +45,14 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   Set<String> _claimedDeliveryIds = {}; // Track claimed delivery IDs
   List<Delivery> _claimedDeliveries = []; // Deliveries that have been claimed
   List<Delivery> _selectedDeliveries = [];
-  List<Map<String, dynamic>> _deliveryItems = []; // Items with quantities to edit
-  List<CarryForwardItem> _availableCarryForwardItems = []; // C/F items available for this vendor
-  List<CarryForwardItem> _selectedCarryForwardItems = []; // C/F items selected for this claim
-  Map<int, String> _cfStatus = {}; // Track user's choice per item: 'none', 'carry_forward', 'loss'
+  List<Map<String, dynamic>> _deliveryItems =
+      []; // Items with quantities to edit
+  List<CarryForwardItem> _availableCarryForwardItems =
+      []; // C/F items available for this vendor
+  List<CarryForwardItem> _selectedCarryForwardItems =
+      []; // C/F items selected for this claim
+  Map<int, String> _cfStatus =
+      {}; // Track user's choice per item: 'none', 'carry_forward', 'loss'
 
   // State
   int _currentStep = 1;
@@ -79,7 +84,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     setState(() => _isLoading = true);
     try {
       final vendors = await _vendorsRepo.getAllVendors(activeOnly: false);
-      final deliveriesResult = await _deliveriesRepo.getAllDeliveries(limit: 1000, offset: 0);
+      final deliveriesResult =
+          await _deliveriesRepo.getAllDeliveries(limit: 1000, offset: 0);
       final deliveries = deliveriesResult['data'] as List<Delivery>;
 
       if (mounted) {
@@ -111,35 +117,38 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     if (vendorId != null) {
       // Load claimed delivery IDs to track them
       try {
-        final claimedDeliveryIds = await _claimsRepo.getClaimedDeliveryIds(vendorId);
-        
+        final claimedDeliveryIds =
+            await _claimsRepo.getClaimedDeliveryIds(vendorId);
+
         // Debug: Print claimed delivery IDs
-        print('🔍 Claimed delivery IDs for vendor $vendorId: ${claimedDeliveryIds.toList()}');
-        print('🔍 Total deliveries for vendor: ${_allDeliveries.where((d) => d.vendorId == vendorId && d.status == 'delivered').length}');
-        
+        print(
+            '🔍 Claimed delivery IDs for vendor $vendorId: ${claimedDeliveryIds.toList()}');
+        print(
+            '🔍 Total deliveries for vendor: ${_allDeliveries.where((d) => d.vendorId == vendorId && d.status == 'delivered').length}');
+
         if (mounted) {
           setState(() {
             _claimedDeliveryIds = claimedDeliveryIds;
-            
+
             // Get all deliveries for vendor (both claimed and unclaimed)
             final allDeliveriesForVendor = _allDeliveries
                 .where((d) => d.vendorId == vendorId && d.status == 'delivered')
                 .toList();
-            
+
             // Separate into available and claimed
             _availableDeliveries = allDeliveriesForVendor
                 .where((d) => !claimedDeliveryIds.contains(d.id))
                 .toList();
-            
+
             _claimedDeliveries = allDeliveriesForVendor
                 .where((d) => claimedDeliveryIds.contains(d.id))
                 .toList();
-            
+
             print('🔍 Available deliveries: ${_availableDeliveries.length}');
             print('🔍 Claimed deliveries: ${_claimedDeliveries.length}');
           });
         }
-        
+
         // Load C/F items for this vendor
         _loadCarryForwardItems(vendorId);
       } catch (e) {
@@ -170,7 +179,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
   Future<void> _loadCarryForwardItems(String vendorId) async {
     try {
-      final items = await _carryForwardRepo.getAvailableItemsWithDetails(vendorId: vendorId);
+      final items = await _carryForwardRepo.getAvailableItemsWithDetails(
+          vendorId: vendorId);
       if (mounted) {
         setState(() {
           _availableCarryForwardItems = items;
@@ -211,7 +221,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   }
 
   Future<void> _loadDeliveryItems() async {
-    if (_selectedDeliveries.isEmpty && _selectedCarryForwardItems.isEmpty) return;
+    if (_selectedDeliveries.isEmpty && _selectedCarryForwardItems.isEmpty)
+      return;
 
     setState(() => _isLoading = true);
     try {
@@ -241,19 +252,24 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
       // Add C/F items as virtual delivery items
       for (var cfItem in _selectedCarryForwardItems) {
+        // For C/F items, start with all quantity assumed as sold (user can change if some expire/damage/CF)
+        final cfQuantity = cfItem.quantityAvailable;
         allItems.add({
-          'itemId': cfItem.sourceDeliveryItemId ?? cfItem.id, // Use source item ID if available
-          'deliveryId': cfItem.sourceDeliveryId ?? 'cf-${cfItem.id}', // Virtual delivery ID
+          'itemId': cfItem.sourceDeliveryItemId ??
+              cfItem.id, // Use source item ID if available
+          'deliveryId': cfItem.sourceDeliveryId ??
+              'cf-${cfItem.id}', // Virtual delivery ID
           'deliveryDate': cfItem.createdAt, // Use C/F creation date
           'productName': cfItem.displayName,
-          'quantity': cfItem.quantityAvailable, // Available quantity from C/F
+          'quantity': cfQuantity, // Available quantity from C/F
           'unitPrice': cfItem.unitPrice,
-          'quantitySold': 0.0, // Start with 0, user will update
+          'quantitySold': cfQuantity, // Auto: assume all will be sold initially
           'quantityUnsold': 0.0, // Can be C/F again if not sold
           'quantityExpired': 0.0,
           'quantityDamaged': 0.0,
           'isCarryForward': true, // Mark as C/F item
-          'carryForwardItemId': cfItem.id, // Store C/F item ID for later reference
+          'carryForwardItemId':
+              cfItem.id, // Store C/F item ID for later reference
           'sourceClaimNumber': cfItem.originalClaimNumber,
         });
       }
@@ -276,16 +292,17 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     setState(() {
       final item = _deliveryItems[index];
       final total = item['quantity'] as double;
-      
+
       // Update the specific quantity
       _deliveryItems[index][type] = value.clamp(0.0, total);
-      
+
       // Auto-calculate sold quantity: total - expired - damaged - carryForward
       final expired = _deliveryItems[index]['quantityExpired'] as double;
       final damaged = _deliveryItems[index]['quantityDamaged'] as double;
-      final carryForward = _deliveryItems[index]['quantityUnsold'] as double; // This is now C/F
+      final carryForward =
+          _deliveryItems[index]['quantityUnsold'] as double; // This is now C/F
       final sold = total - expired - damaged - carryForward;
-      
+
       _deliveryItems[index]['quantitySold'] = sold.clamp(0.0, total);
     });
   }
@@ -295,13 +312,13 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     final current = item[type] as double;
     final total = item['quantity'] as double;
     final max = total;
-    
+
     // Calculate current totals
     final expired = item['quantityExpired'] as double;
     final damaged = item['quantityDamaged'] as double;
     final unsold = item['quantityUnsold'] as double;
     final used = expired + damaged + unsold;
-    
+
     // For expired/damaged/unsold, max is total - other quantities
     double available = 0.0;
     if (type == 'quantityExpired') {
@@ -311,7 +328,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     } else if (type == 'quantityUnsold') {
       available = total - expired - damaged;
     }
-    
+
     if (current < available) {
       _updateItemQuantity(index, type, current + 1.0);
     }
@@ -335,7 +352,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     try {
       // Only update delivery items (not C/F items which don't have delivery_item records)
       final updates = _deliveryItems
-          .where((item) => item['deliveryItemId'] != null) // Only regular delivery items
+          .where((item) =>
+              item['deliveryItemId'] != null) // Only regular delivery items
           .map((item) {
         return <String, dynamic>{
           'itemId': item['deliveryItemId'],
@@ -348,7 +366,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
       }).toList();
 
       if (updates.isNotEmpty) {
-        await _deliveriesRepo.batchUpdateDeliveryItemQuantities(updates: updates);
+        await _deliveriesRepo.batchUpdateDeliveryItemQuantities(
+            updates: updates);
       }
 
       if (mounted) {
@@ -397,9 +416,10 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   }
 
   Future<void> _validateAndCreate() async {
-    if (_selectedVendorId == null || 
+    if (_selectedVendorId == null ||
         (_selectedDeliveries.isEmpty && _selectedCarryForwardItems.isEmpty)) {
-      _showError('Sila pilih sekurang-kurangnya satu penghantaran atau item C/F');
+      _showError(
+          'Sila pilih sekurang-kurangnya satu penghantaran atau item C/F');
       return;
     }
 
@@ -430,7 +450,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
       // Create claim
       setState(() => _isCreating = true);
-      
+
       // Build item metadata with carry_forward_status
       final itemMetadata = <String, Map<String, dynamic>>{};
       for (var item in _deliveryItems) {
@@ -438,7 +458,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         final cfStatus = _cfStatus[_deliveryItems.indexOf(item)] ?? 'none';
         itemMetadata[itemId] = {'carry_forward_status': cfStatus};
       }
-      
+
       final claim = await _claimsRepo.createClaim(
         vendorId: _selectedVendorId!,
         deliveryIds: _selectedDeliveries.map((d) => d.id).toList(),
@@ -452,7 +472,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         if (_selectedCarryForwardItems.isNotEmpty) {
           try {
             await _carryForwardRepo.markAsUsed(
-              carryForwardItemIds: _selectedCarryForwardItems.map((i) => i.id).toList(),
+              carryForwardItemIds:
+                  _selectedCarryForwardItems.map((i) => i.id).toList(),
               claimId: claim.id,
             );
           } catch (e) {
@@ -464,7 +485,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         // Load business profile and vendor info for Step 5
         final businessProfile = await _businessProfileRepo.getBusinessProfile();
         final vendor = _vendors.firstWhere((v) => v.id == _selectedVendorId);
-        
+
         setState(() {
           _createdClaim = claim;
           _businessProfile = businessProfile;
@@ -536,9 +557,13 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   void _nextStep() {
     if (_currentStep < 5) {
       setState(() => _currentStep++);
-      if (_currentStep == 3 && (_selectedDeliveries.isNotEmpty || _selectedCarryForwardItems.isNotEmpty)) {
+      if (_currentStep == 3 &&
+          (_selectedDeliveries.isNotEmpty ||
+              _selectedCarryForwardItems.isNotEmpty)) {
         _loadDeliveryItems();
-      } else if (_currentStep == 4 && (_selectedDeliveries.isNotEmpty || _selectedCarryForwardItems.isNotEmpty)) {
+      } else if (_currentStep == 4 &&
+          (_selectedDeliveries.isNotEmpty ||
+              _selectedCarryForwardItems.isNotEmpty)) {
         _calculateSummary();
       }
     }
@@ -638,7 +663,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
             label,
             style: TextStyle(
               fontSize: 12,
-              color: isActive || isCompleted ? AppColors.primary : Colors.grey[600],
+              color: isActive || isCompleted
+                  ? AppColors.primary
+                  : Colors.grey[600],
               fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
             ),
             textAlign: TextAlign.center,
@@ -767,7 +794,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
           ),
         ),
         const SizedBox(height: 24),
-        
+
         // Available Deliveries Section
         if (_availableDeliveries.isNotEmpty)
           Column(
@@ -796,7 +823,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
               const SizedBox(height: 12),
               ..._availableDeliveries.map((delivery) {
-                final isSelected = _selectedDeliveries.any((d) => d.id == delivery.id);
+                final isSelected =
+                    _selectedDeliveries.any((d) => d.id == delivery.id);
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   color: isSelected ? Colors.green[50] : null,
@@ -807,12 +835,15 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                           child: Text(
                             delivery.vendorName,
                             style: TextStyle(
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                             ),
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: Colors.green[100],
                             borderRadius: BorderRadius.circular(12),
@@ -859,7 +890,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               }),
             ],
           ),
-        
+
         // Claimed Deliveries Section
         if (_claimedDeliveries.isNotEmpty) ...[
           if (_availableDeliveries.isNotEmpty) ...[
@@ -918,7 +949,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: Colors.grey[300],
                             borderRadius: BorderRadius.circular(12),
@@ -965,7 +997,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
             ],
           ),
         ],
-        
+
         // No deliveries at all
         if (_availableDeliveries.isEmpty && _claimedDeliveries.isEmpty)
           Card(
@@ -1020,7 +1052,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
             ),
           ),
         ],
-        
+
         // Carry Forward Items Section
         if (_availableCarryForwardItems.isNotEmpty) ...[
           const SizedBox(height: 32),
@@ -1049,7 +1081,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
           ),
           const SizedBox(height: 16),
           ..._availableCarryForwardItems.map((item) {
-            final isSelected = _selectedCarryForwardItems.any((i) => i.id == item.id);
+            final isSelected =
+                _selectedCarryForwardItems.any((i) => i.id == item.id);
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
               color: isSelected ? Colors.blue[50] : null,
@@ -1057,7 +1090,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                 title: Text(
                   item.displayName,
                   style: TextStyle(
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
                 subtitle: Column(
@@ -1125,178 +1159,188 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-        const Text(
-          'Langkah 3: Kemaskini Kuantiti',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Kemaskini kuantiti terjual, expired, rosak untuk setiap produk',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey[600],
-          ),
-        ),
-        const SizedBox(height: 16),
-        Card(
-          color: Colors.blue[50],
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, size: 20, color: Colors.blue[700]),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Terjual = Dihantar - Expired - Rosak - Belum Terjual (C/F). Kuantiti Terjual akan dikira secara automatik.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.blue[700],
-                    ),
-                  ),
-                ),
-              ],
+          const Text(
+            'Langkah 3: Kemaskini Kuantiti',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: _deliveryItems.isEmpty
-              ? Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.inventory, size: 48, color: Colors.grey[400]),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Memuatkan item...',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
+          const SizedBox(height: 8),
+          Text(
+            'Kemaskini kuantiti terjual, expired, rosak untuk setiap produk',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            color: Colors.blue[50],
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: Colors.blue[700]),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Terjual = Dihantar - Expired - Rosak - Belum Terjual (C/F). Kuantiti Terjual akan dikira secara automatik.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue[700],
+                      ),
                     ),
                   ),
-                )
-              : ListView.builder(
-              itemCount: _deliveryItems.length,
-              itemBuilder: (context, index) {
-              final item = _deliveryItems[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item['productName'] as String,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Dihantar: ${item['quantity'].toStringAsFixed(2)} unit @ RM ${item['unitPrice'].toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const Divider(height: 24),
-                      // Terjual - Auto calculated (read-only display)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.success.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.shopping_cart, size: 24, color: AppColors.success),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Terjual (Auto)',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey[700],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${item['quantitySold'].toStringAsFixed(0)} unit',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.success,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildQuantityField(
-                        label: 'Expired',
-                        value: item['quantityExpired'] as double,
-                        icon: Icons.event_busy,
-                        color: Colors.orange,
-                        onChanged: (value) => _updateItemQuantity(index, 'quantityExpired', value),
-                        max: item['quantity'] as double,
-                        itemIndex: index,
-                        quantityType: 'quantityExpired',
-                      ),
-                      const SizedBox(height: 12),
-                      _buildQuantityField(
-                        label: 'Rosak',
-                        value: item['quantityDamaged'] as double,
-                        icon: Icons.broken_image,
-                        color: Colors.red,
-                        onChanged: (value) => _updateItemQuantity(index, 'quantityDamaged', value),
-                        max: item['quantity'] as double,
-                        itemIndex: index,
-                        quantityType: 'quantityDamaged',
-                      ),
-                      const SizedBox(height: 12),
-                      // Belum Terjual (C/F) - User input with +/- buttons
-                      _buildQuantityField(
-                        label: 'Belum Terjual (C/F)',
-                        value: item['quantityUnsold'] as double,
-                        icon: Icons.forward,
-                        color: Colors.blue,
-                        onChanged: (value) => _updateItemQuantity(index, 'quantityUnsold', value),
-                        max: item['quantity'] as double,
-                        itemIndex: index,
-                        quantityType: 'quantityUnsold',
-                        showTooltip: true,
-                        tooltipMessage: 'Carry Forward - Item ini akan dibawa ke tuntutan seterusnya',
-                      ),
-                      
-                      // Carry Forward Status Selection (if unsold > 0)
-                      if (((item['quantityUnsold'] as double?) ?? 0.0) > 0)
-                        _buildCarryForwardChoices(index, item),
-                    ],
-                  ),
-                ),
-              );
-            },
+                ],
+              ),
+            ),
           ),
-        ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _deliveryItems.isEmpty
+                ? Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.inventory,
+                              size: 48, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Memuatkan item...',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _deliveryItems.length,
+                    itemBuilder: (context, index) {
+                      final item = _deliveryItems[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item['productName'] as String,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Dihantar: ${item['quantity'].toStringAsFixed(2)} unit @ RM ${item['unitPrice'].toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const Divider(height: 24),
+                              // Terjual - Auto calculated (read-only display)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.success.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                      color:
+                                          AppColors.success.withOpacity(0.3)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.shopping_cart,
+                                        size: 24, color: AppColors.success),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Terjual (Auto)',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w500,
+                                              color: Colors.grey[700],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '${item['quantitySold'].toStringAsFixed(0)} unit',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: AppColors.success,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _buildQuantityField(
+                                label: 'Expired',
+                                value: item['quantityExpired'] as double,
+                                icon: Icons.event_busy,
+                                color: Colors.orange,
+                                onChanged: (value) => _updateItemQuantity(
+                                    index, 'quantityExpired', value),
+                                max: item['quantity'] as double,
+                                itemIndex: index,
+                                quantityType: 'quantityExpired',
+                              ),
+                              const SizedBox(height: 12),
+                              _buildQuantityField(
+                                label: 'Rosak',
+                                value: item['quantityDamaged'] as double,
+                                icon: Icons.broken_image,
+                                color: Colors.red,
+                                onChanged: (value) => _updateItemQuantity(
+                                    index, 'quantityDamaged', value),
+                                max: item['quantity'] as double,
+                                itemIndex: index,
+                                quantityType: 'quantityDamaged',
+                              ),
+                              const SizedBox(height: 12),
+                              // Belum Terjual (C/F) - User input with +/- buttons
+                              _buildQuantityField(
+                                label: 'Belum Terjual (C/F)',
+                                value: item['quantityUnsold'] as double,
+                                icon: Icons.forward,
+                                color: Colors.blue,
+                                onChanged: (value) => _updateItemQuantity(
+                                    index, 'quantityUnsold', value),
+                                max: item['quantity'] as double,
+                                itemIndex: index,
+                                quantityType: 'quantityUnsold',
+                                showTooltip: true,
+                                tooltipMessage:
+                                    'Carry Forward - Item ini akan dibawa ke tuntutan seterusnya',
+                              ),
+
+                              // Carry Forward Status Selection (if unsold > 0)
+                              if (((item['quantityUnsold'] as double?) ?? 0.0) >
+                                  0)
+                                _buildCarryForwardChoices(index, item),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ],
       ),
     );
@@ -1315,7 +1359,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     String? tooltipMessage,
   }) {
     final controller = TextEditingController(text: value.toStringAsFixed(0));
-    
+
     return Row(
       children: [
         Icon(icon, size: 24, color: color),
@@ -1358,7 +1402,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                     child: IconButton(
                       padding: EdgeInsets.zero,
                       icon: const Icon(Icons.remove, size: 20),
-                      onPressed: () => _decrementQuantity(itemIndex, quantityType),
+                      onPressed: () =>
+                          _decrementQuantity(itemIndex, quantityType),
                       color: Colors.grey[700],
                     ),
                   ),
@@ -1374,14 +1419,16 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                       child: TextField(
                         controller: controller,
                         textAlign: TextAlign.center,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: false),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                         decoration: InputDecoration(
                           border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 8),
                           hintText: '0',
                           hintStyle: TextStyle(color: Colors.grey[400]),
                         ),
@@ -1408,7 +1455,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                     child: IconButton(
                       padding: EdgeInsets.zero,
                       icon: Icon(Icons.add, size: 20, color: color),
-                      onPressed: () => _incrementQuantity(itemIndex, quantityType),
+                      onPressed: () =>
+                          _incrementQuantity(itemIndex, quantityType),
                     ),
                   ),
                 ],
@@ -1446,7 +1494,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   Widget _buildCarryForwardChoices(int itemIndex, Map<String, dynamic> item) {
     final unsoldQty = (item['quantityUnsold'] as double?) ?? 0.0;
     final currentStatus = _cfStatus[itemIndex] ?? 'none';
-    
+
     return Card(
       margin: const EdgeInsets.only(top: 16),
       color: Colors.orange[50],
@@ -1472,12 +1520,13 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ],
             ),
             const SizedBox(height: 12),
-            
+
             // Option 1: Mark as Loss
             Container(
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: currentStatus == 'loss' ? Colors.red : Colors.grey[300]!,
+                  color:
+                      currentStatus == 'loss' ? Colors.red : Colors.grey[300]!,
                   width: currentStatus == 'loss' ? 2 : 1,
                 ),
                 borderRadius: BorderRadius.circular(8),
@@ -1502,12 +1551,14 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
             ),
             const SizedBox(height: 8),
-            
+
             // Option 2: Carry Forward
             Container(
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: currentStatus == 'carry_forward' ? Colors.blue : Colors.grey[300]!,
+                  color: currentStatus == 'carry_forward'
+                      ? Colors.blue
+                      : Colors.grey[300]!,
                   width: currentStatus == 'carry_forward' ? 2 : 1,
                 ),
                 borderRadius: BorderRadius.circular(8),
@@ -1528,18 +1579,21 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                     setState(() => _cfStatus[itemIndex] = value);
                   }
                 },
-                tileColor: currentStatus == 'carry_forward' ? Colors.blue[50] : null,
+                tileColor:
+                    currentStatus == 'carry_forward' ? Colors.blue[50] : null,
               ),
             ),
             const SizedBox(height: 8),
-            
+
             // Status indicator
             if (currentStatus != 'none')
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: currentStatus == 'carry_forward' ? Colors.blue[100] : Colors.red[100],
+                  color: currentStatus == 'carry_forward'
+                      ? Colors.blue[100]
+                      : Colors.red[100],
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -1547,7 +1601,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: currentStatus == 'carry_forward' ? Colors.blue[700] : Colors.red[700],
+                    color: currentStatus == 'carry_forward'
+                        ? Colors.blue[700]
+                        : Colors.red[700],
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -1705,12 +1761,12 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
           ],
         ),
         const SizedBox(height: 16),
-        
+
         // Summary Card
         ClaimSummaryCard(summary: _claimSummary!),
-        
+
         const SizedBox(height: 16),
-        
+
         // Detailed Breakdown
         Card(
           child: ExpansionTile(
@@ -1786,9 +1842,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
             ],
           ),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Item Breakdown
         Card(
           child: ExpansionTile(
@@ -1812,14 +1868,17 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: _deliveryItems
-                      .where((item) => item['isCarryForward'] != true) // Only show regular delivery items, not C/F
+                      .where((item) =>
+                          item['isCarryForward'] !=
+                          true) // Only show regular delivery items, not C/F
                       .map((item) {
                     final sold = item['quantitySold'] as double;
                     final unitPrice = item['unitPrice'] as double;
                     final itemValue = sold * unitPrice;
-                    final commission = itemValue * (_claimSummary!.commissionRate / 100);
+                    final commission =
+                        itemValue * (_claimSummary!.commissionRate / 100);
                     final net = itemValue - commission;
-                    
+
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Column(
@@ -1901,7 +1960,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value, Color color, {bool isBold = false}) {
+  Widget _buildDetailRow(String label, String value, Color color,
+      {bool isBold = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1969,9 +2029,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
             ),
           ),
-          
+
           const SizedBox(height: 24),
-          
+
           // Invoice Preview
           Card(
             elevation: 2,
@@ -1997,7 +2057,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                     ],
                   ),
                   const Divider(),
-                  
+
                   // Business Info
                   if (_businessProfile != null) ...[
                     Text(
@@ -2023,7 +2083,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                     ],
                     const SizedBox(height: 16),
                   ],
-                  
+
                   // Vendor Info
                   Text(
                     'Kepada:',
@@ -2031,7 +2091,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _selectedVendor?.name ?? _createdClaim!.vendorName ?? 'Vendor',
+                    _selectedVendor?.name ??
+                        _createdClaim!.vendorName ??
+                        'Vendor',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
@@ -2044,11 +2106,12 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
                   ],
-                  
+
                   const Divider(height: 32),
-                  
+
                   // Summary
-                  _buildInvoiceSummaryRow('Jumlah Terjual', _createdClaim!.grossAmount, AppColors.success),
+                  _buildInvoiceSummaryRow('Jumlah Terjual',
+                      _createdClaim!.grossAmount, AppColors.success),
                   const SizedBox(height: 8),
                   _buildInvoiceSummaryRow(
                     'Komisyen (${_createdClaim!.commissionRate.toStringAsFixed(1)}%)',
@@ -2088,9 +2151,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Action Buttons
           Row(
             children: [
@@ -2119,9 +2182,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
             ],
           ),
-          
+
           const SizedBox(height: 12),
-          
+
           Row(
             children: [
               Expanded(
@@ -2156,7 +2219,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     );
   }
 
-  Widget _buildInvoiceSummaryRow(String label, double amount, Color color, {bool isSubtraction = false}) {
+  Widget _buildInvoiceSummaryRow(String label, double amount, Color color,
+      {bool isSubtraction = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -2182,7 +2246,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     try {
       // Get claim items
       final claimWithItems = await _claimsRepo.getClaimById(_createdClaim!.id);
-      
+
       final items = (claimWithItems.items ?? []).map((item) {
         return ClaimItem(
           productName: item.productName ?? 'Unknown Product',
@@ -2214,7 +2278,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
       // Save to file only (no auto-share)
       final directory = await getApplicationDocumentsDirectory();
-      final filePath = '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
+      final filePath =
+          '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
       final file = File(filePath);
       await file.writeAsBytes(pdfBytes);
 
@@ -2238,7 +2303,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
     try {
       final claimWithItems = await _claimsRepo.getClaimById(_createdClaim!.id);
-      
+
       final items = (claimWithItems.items ?? []).map((item) {
         return ClaimItem(
           productName: item.productName ?? 'Unknown Product',
@@ -2284,7 +2349,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     try {
       // Generate PDF first
       final claimWithItems = await _claimsRepo.getClaimById(_createdClaim!.id);
-      
+
       final items = (claimWithItems.items ?? []).map((item) {
         return ClaimItem(
           productName: item.productName ?? 'Unknown Product',
@@ -2316,12 +2381,14 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
 
       // Save to temp file
       final directory = await getTemporaryDirectory();
-      final filePath = '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
+      final filePath =
+          '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
       final file = File(filePath);
       await file.writeAsBytes(pdfBytes);
 
       // Get vendor phone
-      final phone = _selectedVendor!.phone?.replaceAll(RegExp(r'[^\d]'), '') ?? '';
+      final phone =
+          _selectedVendor!.phone?.replaceAll(RegExp(r'[^\d]'), '') ?? '';
       if (phone.isEmpty) {
         _showError('Nombor telefon vendor tidak tersedia');
         return;
@@ -2464,7 +2531,8 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
                     : Text(
@@ -2485,4 +2553,3 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
     );
   }
 }
-

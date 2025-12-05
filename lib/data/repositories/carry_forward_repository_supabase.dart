@@ -28,7 +28,8 @@ class CarryForwardRepositorySupabase {
       }
 
       return (response as List)
-          .map((json) => CarryForwardItem.fromJson(json as Map<String, dynamic>))
+          .map(
+              (json) => CarryForwardItem.fromJson(json as Map<String, dynamic>))
           .toList();
     } catch (e) {
       throw Exception('Error fetching carry forward items: $e');
@@ -59,7 +60,8 @@ class CarryForwardRepositorySupabase {
       }
 
       return (response as List)
-          .map((json) => CarryForwardItem.fromJson(json as Map<String, dynamic>))
+          .map(
+              (json) => CarryForwardItem.fromJson(json as Map<String, dynamic>))
           .toList();
     } catch (e) {
       throw Exception('Error fetching carry forward items: $e');
@@ -138,11 +140,12 @@ class CarryForwardRepositorySupabase {
   }
 
   /// Get C/F items grouped by product (for easier display)
-  Future<Map<String, List<CarryForwardItem>>> getAvailableItemsGroupedByProduct({
+  Future<Map<String, List<CarryForwardItem>>>
+      getAvailableItemsGroupedByProduct({
     required String vendorId,
   }) async {
     final items = await getAvailableItemsWithDetails(vendorId: vendorId);
-    
+
     final grouped = <String, List<CarryForwardItem>>{};
     for (final item in items) {
       final key = item.productId ?? item.productName;
@@ -151,7 +154,7 @@ class CarryForwardRepositorySupabase {
       }
       grouped[key]!.add(item);
     }
-    
+
     return grouped;
   }
 
@@ -161,18 +164,21 @@ class CarryForwardRepositorySupabase {
     String? productId,
     String? productName,
   }) async {
-    final List<CarryForwardItem> items = await getAvailableItems(vendorId: vendorId);
-    
+    final List<CarryForwardItem> items =
+        await getAvailableItems(vendorId: vendorId);
+
     if (productId != null) {
-      final filtered = items.where((item) => item.productId == productId).toList();
-      return filtered.fold<double>(0.0, (sum, item) => sum + item.quantityAvailable);
+      final filtered =
+          items.where((item) => item.productId == productId).toList();
+      return filtered.fold<double>(
+          0.0, (sum, item) => sum + item.quantityAvailable);
     } else if (productName != null) {
-      final filtered = items.where((item) => item.productName == productName).toList();
-      return filtered.fold<double>(0.0, (sum, item) => sum + item.quantityAvailable);
+      final filtered =
+          items.where((item) => item.productName == productName).toList();
+      return filtered.fold<double>(
+          0.0, (sum, item) => sum + item.quantityAvailable);
     }
-    
+
     return items.fold<double>(0.0, (sum, item) => sum + item.quantityAvailable);
   }
 }
-
-

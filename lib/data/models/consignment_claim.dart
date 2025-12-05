@@ -49,26 +49,36 @@ class ConsignmentClaim {
   factory ConsignmentClaim.fromJson(Map<String, dynamic> json) {
     return ConsignmentClaim(
       id: json['id'] as String,
-      businessOwnerId: json['businessOwnerId'] as String? ?? json['business_owner_id'] as String,
+      businessOwnerId: json['businessOwnerId'] as String? ??
+          json['business_owner_id'] as String,
       vendorId: json['vendorId'] as String? ?? json['vendor_id'] as String,
-      vendorName: json['vendorName'] as String? ?? json['vendor_name'] as String?,
-      claimNumber: json['claimNumber'] as String? ?? json['claim_number'] as String,
-      claimDate: DateTime.parse(json['claimDate'] as String? ?? json['claim_date'] as String),
+      vendorName:
+          json['vendorName'] as String? ?? json['vendor_name'] as String?,
+      claimNumber:
+          json['claimNumber'] as String? ?? json['claim_number'] as String,
+      claimDate: DateTime.parse(
+          json['claimDate'] as String? ?? json['claim_date'] as String),
       status: _parseStatus(json['status'] as String? ?? 'draft'),
-      grossAmount: (json['grossAmount'] as num?)?.toDouble() ?? 
-                  (json['gross_amount'] as num?)?.toDouble() ?? 0.0,
-      commissionRate: (json['commissionRate'] as num?)?.toDouble() ?? 
-                     (json['commission_rate'] as num?)?.toDouble() ?? 0.0,
-      commissionAmount: (json['commissionAmount'] as num?)?.toDouble() ?? 
-                       (json['commission_amount'] as num?)?.toDouble() ?? 0.0,
-      netAmount: (json['netAmount'] as num?)?.toDouble() ?? 
-                (json['net_amount'] as num?)?.toDouble() ?? 0.0,
-      paidAmount: (json['paidAmount'] as num?)?.toDouble() ?? 
-                 (json['paid_amount'] as num?)?.toDouble() ?? 0.0,
-      balanceAmount: (json['balanceAmount'] as num?)?.toDouble() ?? 
-                    (json['balance_amount'] as num?)?.toDouble() ?? 0.0,
+      grossAmount: (json['grossAmount'] as num?)?.toDouble() ??
+          (json['gross_amount'] as num?)?.toDouble() ??
+          0.0,
+      commissionRate: (json['commissionRate'] as num?)?.toDouble() ??
+          (json['commission_rate'] as num?)?.toDouble() ??
+          0.0,
+      commissionAmount: (json['commissionAmount'] as num?)?.toDouble() ??
+          (json['commission_amount'] as num?)?.toDouble() ??
+          0.0,
+      netAmount: (json['netAmount'] as num?)?.toDouble() ??
+          (json['net_amount'] as num?)?.toDouble() ??
+          0.0,
+      paidAmount: (json['paidAmount'] as num?)?.toDouble() ??
+          (json['paid_amount'] as num?)?.toDouble() ??
+          0.0,
+      balanceAmount: (json['balanceAmount'] as num?)?.toDouble() ??
+          (json['balance_amount'] as num?)?.toDouble() ??
+          0.0,
       notes: json['notes'] as String?,
-      dueDate: json['dueDate'] != null 
+      dueDate: json['dueDate'] != null
           ? DateTime.parse(json['dueDate'] as String)
           : json['due_date'] != null
               ? DateTime.parse(json['due_date'] as String)
@@ -88,11 +98,14 @@ class ConsignmentClaim {
           : json['settled_at'] != null
               ? DateTime.parse(json['settled_at'] as String)
               : null,
-      createdAt: DateTime.parse(json['createdAt'] as String? ?? json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String? ?? json['updated_at'] as String),
+      createdAt: DateTime.parse(
+          json['createdAt'] as String? ?? json['created_at'] as String),
+      updatedAt: DateTime.parse(
+          json['updatedAt'] as String? ?? json['updated_at'] as String),
       items: json['items'] != null
           ? (json['items'] as List<dynamic>)
-              .map((item) => ConsignmentClaimItem.fromJson(item as Map<String, dynamic>))
+              .map((item) =>
+                  ConsignmentClaimItem.fromJson(item as Map<String, dynamic>))
               .toList()
           : null,
     );
@@ -168,7 +181,7 @@ class ConsignmentClaimItem {
   final double netAmount;
   final double paidAmount;
   final double balanceAmount;
-  final String carryForwardStatus;  // 'none', 'carry_forward', 'loss'
+  final String carryForwardStatus; // 'none', 'carry_forward', 'loss'
   final DateTime createdAt;
   final DateTime updatedAt;
   // Denormalized fields
@@ -205,39 +218,58 @@ class ConsignmentClaimItem {
     return ConsignmentClaimItem(
       id: json['id'] as String,
       claimId: json['claimId'] as String? ?? json['claim_id'] as String,
-      deliveryId: json['deliveryId'] as String? ?? json['delivery_id'] as String,
-      deliveryItemId: json['deliveryItemId'] as String? ?? json['delivery_item_id'] as String,
-      quantityDelivered: (json['quantityDelivered'] as num?)?.toDouble() ?? 
-                        (json['quantity_delivered'] as num?)?.toDouble() ?? 0.0,
-      quantitySold: (json['quantitySold'] as num?)?.toDouble() ?? 
-                   (json['quantity_sold'] as num?)?.toDouble() ?? 0.0,
-      quantityUnsold: (json['quantityUnsold'] as num?)?.toDouble() ?? 
-                     (json['quantity_unsold'] as num?)?.toDouble() ?? 0.0,
-      quantityExpired: (json['quantityExpired'] as num?)?.toDouble() ?? 
-                      (json['quantity_expired'] as num?)?.toDouble() ?? 0.0,
-      quantityDamaged: (json['quantityDamaged'] as num?)?.toDouble() ?? 
-                     (json['quantity_damaged'] as num?)?.toDouble() ?? 0.0,
-      unitPrice: (json['unitPrice'] as num?)?.toDouble() ?? 
-                (json['unit_price'] as num?)?.toDouble() ?? 0.0,
-      grossAmount: (json['grossAmount'] as num?)?.toDouble() ?? 
-                 (json['gross_amount'] as num?)?.toDouble() ?? 0.0,
-      commissionRate: (json['commissionRate'] as num?)?.toDouble() ?? 
-                    (json['commission_rate'] as num?)?.toDouble() ?? 0.0,
-      commissionAmount: (json['commissionAmount'] as num?)?.toDouble() ?? 
-                       (json['commission_amount'] as num?)?.toDouble() ?? 0.0,
-      netAmount: (json['netAmount'] as num?)?.toDouble() ?? 
-                (json['net_amount'] as num?)?.toDouble() ?? 0.0,
-      paidAmount: (json['paidAmount'] as num?)?.toDouble() ?? 
-                (json['paid_amount'] as num?)?.toDouble() ?? 0.0,
-      balanceAmount: (json['balanceAmount'] as num?)?.toDouble() ?? 
-                    (json['balance_amount'] as num?)?.toDouble() ?? 0.0,
-      carryForwardStatus: (json['carryForwardStatus'] as String?) ?? 
-                         (json['carry_forward_status'] as String?) ?? 'none',
-      createdAt: DateTime.parse(json['createdAt'] as String? ?? json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String? ?? json['updated_at'] as String),
+      deliveryId:
+          json['deliveryId'] as String? ?? json['delivery_id'] as String,
+      deliveryItemId: json['deliveryItemId'] as String? ??
+          json['delivery_item_id'] as String,
+      quantityDelivered: (json['quantityDelivered'] as num?)?.toDouble() ??
+          (json['quantity_delivered'] as num?)?.toDouble() ??
+          0.0,
+      quantitySold: (json['quantitySold'] as num?)?.toDouble() ??
+          (json['quantity_sold'] as num?)?.toDouble() ??
+          0.0,
+      quantityUnsold: (json['quantityUnsold'] as num?)?.toDouble() ??
+          (json['quantity_unsold'] as num?)?.toDouble() ??
+          0.0,
+      quantityExpired: (json['quantityExpired'] as num?)?.toDouble() ??
+          (json['quantity_expired'] as num?)?.toDouble() ??
+          0.0,
+      quantityDamaged: (json['quantityDamaged'] as num?)?.toDouble() ??
+          (json['quantity_damaged'] as num?)?.toDouble() ??
+          0.0,
+      unitPrice: (json['unitPrice'] as num?)?.toDouble() ??
+          (json['unit_price'] as num?)?.toDouble() ??
+          0.0,
+      grossAmount: (json['grossAmount'] as num?)?.toDouble() ??
+          (json['gross_amount'] as num?)?.toDouble() ??
+          0.0,
+      commissionRate: (json['commissionRate'] as num?)?.toDouble() ??
+          (json['commission_rate'] as num?)?.toDouble() ??
+          0.0,
+      commissionAmount: (json['commissionAmount'] as num?)?.toDouble() ??
+          (json['commission_amount'] as num?)?.toDouble() ??
+          0.0,
+      netAmount: (json['netAmount'] as num?)?.toDouble() ??
+          (json['net_amount'] as num?)?.toDouble() ??
+          0.0,
+      paidAmount: (json['paidAmount'] as num?)?.toDouble() ??
+          (json['paid_amount'] as num?)?.toDouble() ??
+          0.0,
+      balanceAmount: (json['balanceAmount'] as num?)?.toDouble() ??
+          (json['balance_amount'] as num?)?.toDouble() ??
+          0.0,
+      carryForwardStatus: (json['carryForwardStatus'] as String?) ??
+          (json['carry_forward_status'] as String?) ??
+          'none',
+      createdAt: DateTime.parse(
+          json['createdAt'] as String? ?? json['created_at'] as String),
+      updatedAt: DateTime.parse(
+          json['updatedAt'] as String? ?? json['updated_at'] as String),
       productId: json['productId'] as String? ?? json['product_id'] as String?,
-      productName: json['productName'] as String? ?? json['product_name'] as String?,
-      deliveryNumber: json['deliveryNumber'] as String? ?? json['delivery_number'] as String?,
+      productName:
+          json['productName'] as String? ?? json['product_name'] as String?,
+      deliveryNumber: json['deliveryNumber'] as String? ??
+          json['delivery_number'] as String?,
     );
   }
 
@@ -268,6 +300,3 @@ class ConsignmentClaimItem {
     };
   }
 }
-
-
-

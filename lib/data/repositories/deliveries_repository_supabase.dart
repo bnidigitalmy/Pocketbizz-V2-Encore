@@ -24,14 +24,13 @@ class DeliveriesRepositorySupabase {
       final deliveryJson = json as Map<String, dynamic>;
       final items = (deliveryJson['vendor_delivery_items'] as List<dynamic>?)
               ?.map((item) {
-                final itemJson = item as Map<String, dynamic>;
-                final product = itemJson['products'] as Map<String, dynamic>?;
-                return {
-                  ...itemJson,
-                  'product_name': product?['name'] ?? itemJson['product_name'],
-                };
-              })
-              .toList() ??
+            final itemJson = item as Map<String, dynamic>;
+            final product = itemJson['products'] as Map<String, dynamic>?;
+            return {
+              ...itemJson,
+              'product_name': product?['name'] ?? itemJson['product_name'],
+            };
+          }).toList() ??
           [];
       return Delivery.fromJson({
         ...deliveryJson,
@@ -50,32 +49,27 @@ class DeliveriesRepositorySupabase {
 
   /// Get delivery by ID
   Future<Delivery?> getDeliveryById(String deliveryId) async {
-    final response = await supabase
-        .from('vendor_deliveries')
-        .select('''
+    final response = await supabase.from('vendor_deliveries').select('''
           *,
           vendor_delivery_items (
             *,
             products (id, name, sku)
           )
-        ''')
-        .eq('id', deliveryId)
-        .maybeSingle();
+        ''').eq('id', deliveryId).maybeSingle();
 
     if (response == null) return null;
 
     final deliveryJson = response as Map<String, dynamic>;
-    final items = (deliveryJson['vendor_delivery_items'] as List<dynamic>?)
-            ?.map((item) {
+    final items =
+        (deliveryJson['vendor_delivery_items'] as List<dynamic>?)?.map((item) {
               final itemJson = item as Map<String, dynamic>;
               final product = itemJson['products'] as Map<String, dynamic>?;
               return {
                 ...itemJson,
                 'product_name': product?['name'] ?? itemJson['product_name'],
               };
-            })
-            .toList() ??
-        [];
+            }).toList() ??
+            [];
 
     return Delivery.fromJson({
       ...deliveryJson,
@@ -102,17 +96,16 @@ class DeliveriesRepositorySupabase {
     if (response == null) return null;
 
     final deliveryJson = response as Map<String, dynamic>;
-    final items = (deliveryJson['vendor_delivery_items'] as List<dynamic>?)
-            ?.map((item) {
+    final items =
+        (deliveryJson['vendor_delivery_items'] as List<dynamic>?)?.map((item) {
               final itemJson = item as Map<String, dynamic>;
               final product = itemJson['products'] as Map<String, dynamic>?;
               return {
                 ...itemJson,
                 'product_name': product?['name'] ?? itemJson['product_name'],
               };
-            })
-            .toList() ??
-        [];
+            }).toList() ??
+            [];
 
     return Delivery.fromJson({
       ...deliveryJson,
@@ -154,14 +147,14 @@ class DeliveriesRepositorySupabase {
     final deliveryResponse = await supabase
         .from('vendor_deliveries')
         .insert({
-      'business_owner_id': userId,
-      'vendor_id': vendorId,
-      'vendor_name': vendorName,
-      'delivery_date': deliveryDate.toIso8601String().split('T')[0],
-      'status': status,
-      'total_amount': totalAmount,
-      'notes': notes,
-    })
+          'business_owner_id': userId,
+          'vendor_id': vendorId,
+          'vendor_name': vendorName,
+          'delivery_date': deliveryDate.toIso8601String().split('T')[0],
+          'status': status,
+          'total_amount': totalAmount,
+          'notes': notes,
+        })
         .select()
         .single();
 
@@ -206,42 +199,40 @@ class DeliveriesRepositorySupabase {
       notes: notes,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
-      items: items.map((item) => DeliveryItem(
-        id: '',
-        deliveryId: deliveryId,
-        productId: item['product_id'] as String,
-        productName: item['product_name'] as String,
-        quantity: (item['quantity'] as num?)?.toDouble() ?? 0.0,
-        unitPrice: (item['unit_price'] as num?)?.toDouble() ?? 0.0,
-        totalPrice: ((item['quantity'] as num?)?.toDouble() ?? 0.0) * ((item['unit_price'] as num?)?.toDouble() ?? 0.0),
-        retailPrice: (item['retail_price'] as num?)?.toDouble(),
-        rejectedQty: (item['rejected_qty'] as num?)?.toDouble() ?? 0.0,
-        rejectionReason: item['rejection_reason'] as String?,
-        createdAt: DateTime.now(),
-      )).toList(),
+      items: items
+          .map((item) => DeliveryItem(
+                id: '',
+                deliveryId: deliveryId,
+                productId: item['product_id'] as String,
+                productName: item['product_name'] as String,
+                quantity: (item['quantity'] as num?)?.toDouble() ?? 0.0,
+                unitPrice: (item['unit_price'] as num?)?.toDouble() ?? 0.0,
+                totalPrice: ((item['quantity'] as num?)?.toDouble() ?? 0.0) *
+                    ((item['unit_price'] as num?)?.toDouble() ?? 0.0),
+                retailPrice: (item['retail_price'] as num?)?.toDouble(),
+                rejectedQty: (item['rejected_qty'] as num?)?.toDouble() ?? 0.0,
+                rejectionReason: item['rejection_reason'] as String?,
+                createdAt: DateTime.now(),
+              ))
+          .toList(),
     );
   }
 
   /// Update delivery status
   Future<void> updateDeliveryStatus(String deliveryId, String status) async {
-    await supabase
-        .from('vendor_deliveries')
-        .update({
+    await supabase.from('vendor_deliveries').update({
       'status': status,
       'updated_at': DateTime.now().toIso8601String(),
-    })
-        .eq('id', deliveryId);
+    }).eq('id', deliveryId);
   }
 
   /// Update delivery payment status
-  Future<void> updateDeliveryPaymentStatus(String deliveryId, String paymentStatus) async {
-    await supabase
-        .from('vendor_deliveries')
-        .update({
+  Future<void> updateDeliveryPaymentStatus(
+      String deliveryId, String paymentStatus) async {
+    await supabase.from('vendor_deliveries').update({
       'payment_status': paymentStatus,
       'updated_at': DateTime.now().toIso8601String(),
-    })
-        .eq('id', deliveryId);
+    }).eq('id', deliveryId);
   }
 
   /// Update delivery item rejection
@@ -250,14 +241,11 @@ class DeliveriesRepositorySupabase {
     required double rejectedQty,
     required String? rejectionReason,
   }) async {
-    await supabase
-        .from('vendor_delivery_items')
-        .update({
+    await supabase.from('vendor_delivery_items').update({
       'rejected_qty': rejectedQty,
       'rejection_reason': rejectionReason,
       'updated_at': DateTime.now().toIso8601String(),
-    })
-        .eq('id', itemId);
+    }).eq('id', itemId);
   }
 
   /// Update delivery item quantities (sold, unsold, expired, damaged)
@@ -283,29 +271,25 @@ class DeliveriesRepositorySupabase {
 
     final item = itemResponse as Map<String, dynamic>;
     final totalQuantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
-    final total = quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
+    final total =
+        quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
 
     // Validate quantities balance
     if ((total - totalQuantity).abs() > 0.01) {
-      throw Exception(
-        'Jumlah kuantiti tidak sepadan. '
-        'Dihantar: ${totalQuantity.toStringAsFixed(2)}, '
-        'Jumlah: ${total.toStringAsFixed(2)}. '
-        'Sila pastikan jumlah sama dengan kuantiti dihantar.'
-      );
+      throw Exception('Jumlah kuantiti tidak sepadan. '
+          'Dihantar: ${totalQuantity.toStringAsFixed(2)}, '
+          'Jumlah: ${total.toStringAsFixed(2)}. '
+          'Sila pastikan jumlah sama dengan kuantiti dihantar.');
     }
 
     // Update quantities
-    await supabase
-        .from('vendor_delivery_items')
-        .update({
-          'quantity_sold': quantitySold,
-          'quantity_unsold': quantityUnsold,
-          'quantity_expired': quantityExpired,
-          'quantity_damaged': quantityDamaged,
-          'updated_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', itemId);
+    await supabase.from('vendor_delivery_items').update({
+      'quantity_sold': quantitySold,
+      'quantity_unsold': quantityUnsold,
+      'quantity_expired': quantityExpired,
+      'quantity_damaged': quantityDamaged,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', itemId);
   }
 
   /// Batch update multiple delivery items quantities
@@ -321,9 +305,12 @@ class DeliveriesRepositorySupabase {
     for (var update in updates) {
       final itemId = update['itemId'] as String;
       final quantitySold = (update['quantitySold'] as num?)?.toDouble() ?? 0.0;
-      final quantityUnsold = (update['quantityUnsold'] as num?)?.toDouble() ?? 0.0;
-      final quantityExpired = (update['quantityExpired'] as num?)?.toDouble() ?? 0.0;
-      final quantityDamaged = (update['quantityDamaged'] as num?)?.toDouble() ?? 0.0;
+      final quantityUnsold =
+          (update['quantityUnsold'] as num?)?.toDouble() ?? 0.0;
+      final quantityExpired =
+          (update['quantityExpired'] as num?)?.toDouble() ?? 0.0;
+      final quantityDamaged =
+          (update['quantityDamaged'] as num?)?.toDouble() ?? 0.0;
 
       // Get item to validate
       final itemResponse = await supabase
@@ -334,28 +321,25 @@ class DeliveriesRepositorySupabase {
 
       final item = itemResponse as Map<String, dynamic>;
       final totalQuantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
-      final total = quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
+      final total =
+          quantitySold + quantityUnsold + quantityExpired + quantityDamaged;
 
       if ((total - totalQuantity).abs() > 0.01) {
         throw Exception(
-          'Item ${update['productName'] ?? itemId}: Jumlah kuantiti tidak sepadan. '
-          'Dihantar: ${totalQuantity.toStringAsFixed(2)}, Jumlah: ${total.toStringAsFixed(2)}'
-        );
+            'Item ${update['productName'] ?? itemId}: Jumlah kuantiti tidak sepadan. '
+            'Dihantar: ${totalQuantity.toStringAsFixed(2)}, Jumlah: ${total.toStringAsFixed(2)}');
       }
     }
 
     // Update all items
     for (var update in updates) {
-      await supabase
-          .from('vendor_delivery_items')
-          .update({
-            'quantity_sold': update['quantitySold'],
-            'quantity_unsold': update['quantityUnsold'],
-            'quantity_expired': update['quantityExpired'],
-            'quantity_damaged': update['quantityDamaged'],
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', update['itemId']);
+      await supabase.from('vendor_delivery_items').update({
+        'quantity_sold': update['quantitySold'],
+        'quantity_unsold': update['quantityUnsold'],
+        'quantity_expired': update['quantityExpired'],
+        'quantity_damaged': update['quantityDamaged'],
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', update['itemId']);
     }
   }
 
@@ -368,8 +352,10 @@ class DeliveriesRepositorySupabase {
           .eq('id', vendorId)
           .single();
 
-      final commissionType = vendor['commission_type'] as String? ?? 'percentage';
-      final commissionRate = (vendor['default_commission_rate'] as num?)?.toDouble() ?? 0.0;
+      final commissionType =
+          vendor['commission_type'] as String? ?? 'percentage';
+      final commissionRate =
+          (vendor['default_commission_rate'] as num?)?.toDouble() ?? 0.0;
 
       return {
         'commissionType': commissionType,
@@ -380,4 +366,3 @@ class DeliveriesRepositorySupabase {
     }
   }
 }
-
