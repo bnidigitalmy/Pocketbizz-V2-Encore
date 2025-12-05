@@ -233,17 +233,44 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         final deliveryData = await _deliveriesRepo.getDeliveryById(delivery.id);
         if (deliveryData != null) {
           for (var item in deliveryData.items) {
+            final quantity = item.quantity;
+            final soldRaw = item.quantitySold ?? 0.0;
+            final unsoldRaw = item.quantityUnsold ?? 0.0;
+            final expiredRaw = item.quantityExpired ?? 0.0;
+            final damagedRaw = item.quantityDamaged ?? 0.0;
+            final sum = soldRaw + unsoldRaw + expiredRaw + damagedRaw;
+
+            double sold = soldRaw;
+            double unsold = unsoldRaw;
+            double expired = expiredRaw;
+            double damaged = damagedRaw;
+
+            // Jika tiada rekod, auto assume semua terjual
+            if (sum == 0 && quantity > 0) {
+              sold = quantity;
+              unsold = 0;
+              expired = 0;
+              damaged = 0;
+            } else if ((sum - quantity).abs() > 0.01 && quantity > 0) {
+              // Jika tidak seimbang, set unsold supaya balance
+              final diff = quantity - sum;
+              if (diff > 0) {
+                unsold = (unsold + diff).clamp(0.0, quantity);
+              }
+            }
+
             allItems.add({
-              'itemId': item.id,
+              'itemId': item.id, // used for metadata
+              'deliveryItemId': item.id, // used for saving back
               'deliveryId': delivery.id,
               'deliveryDate': delivery.deliveryDate,
               'productName': item.productName,
-              'quantity': item.quantity,
+              'quantity': quantity,
               'unitPrice': item.unitPrice,
-              'quantitySold': item.quantitySold ?? 0.0,
-              'quantityUnsold': item.quantityUnsold ?? 0.0,
-              'quantityExpired': item.quantityExpired ?? 0.0,
-              'quantityDamaged': item.quantityDamaged ?? 0.0,
+              'quantitySold': sold,
+              'quantityUnsold': unsold,
+              'quantityExpired': expired,
+              'quantityDamaged': damaged,
               'isCarryForward': false, // Regular delivery item
             });
           }
@@ -392,13 +419,26 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   }
 
   Future<void> _calculateSummary() async {
-    if (_selectedVendorId == null || _selectedDeliveries.isEmpty) return;
+    if (_deliveryItems.isEmpty) {
+      _showError('Sila pilih penghantaran atau item C/F terlebih dahulu');
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
-      final summary = await _claimsRepo.getClaimSummary(
-        vendorId: _selectedVendorId!,
-        deliveryIds: _selectedDeliveries.map((d) => d.id).toList(),
+      // Kira secara lokal dari _deliveryItems (termasuk C/F)
+      final summary = ClaimSummary.fromDeliveryItems(
+        deliveryItems: _deliveryItems.map((item) {
+          return {
+            'quantity': item['quantity'],
+            'unit_price': item['unitPrice'],
+            'quantity_sold': item['quantitySold'],
+            'quantity_unsold': item['quantityUnsold'],
+            'quantity_expired': item['quantityExpired'],
+            'quantity_damaged': item['quantityDamaged'],
+          };
+        }).toList(),
+        commissionRate: _selectedVendor?.defaultCommissionRate ?? 0.0,
       );
 
       if (mounted) {
@@ -459,12 +499,31 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         itemMetadata[itemId] = {'carry_forward_status': cfStatus};
       }
 
+      // Build carry forward payloads (virtual items) to include in claim
+      final carryForwardItemsPayload = _deliveryItems
+          .where((item) => item['isCarryForward'] == true)
+          .map((item) {
+        return {
+          'id': item['deliveryItemId'] ?? item['itemId'], // treat as delivery_item_id
+          'delivery_id': item['deliveryId'],
+          'product_name': item['productName'],
+          'quantity': item['quantity'],
+          'unit_price': item['unitPrice'],
+          'quantity_sold': item['quantitySold'],
+          'quantity_unsold': item['quantityUnsold'],
+          'quantity_expired': item['quantityExpired'],
+          'quantity_damaged': item['quantityDamaged'],
+          'carry_forward_item_id': item['carryForwardItemId'],
+        };
+      }).toList();
+
       final claim = await _claimsRepo.createClaim(
         vendorId: _selectedVendorId!,
         deliveryIds: _selectedDeliveries.map((d) => d.id).toList(),
         claimDate: _claimDate,
         notes: _notesController.text.isEmpty ? null : _notesController.text,
         itemMetadata: itemMetadata,
+        carryForwardItems: carryForwardItemsPayload,
       );
 
       if (mounted) {
@@ -1856,7 +1915,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
             ),
             subtitle: Text(
-              '${_claimSummary!.totalItems} item dari ${_selectedDeliveries.length} penghantaran',
+              '${_deliveryItems.length} item (termasuk C/F jika ada)',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey[600],
@@ -1867,90 +1926,216 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
-                  children: _deliveryItems
-                      .where((item) =>
-                          item['isCarryForward'] !=
-                          true) // Only show regular delivery items, not C/F
-                      .map((item) {
-                    final sold = item['quantitySold'] as double;
-                    final unitPrice = item['unitPrice'] as double;
-                    final itemValue = sold * unitPrice;
-                    final commission =
-                        itemValue * (_claimSummary!.commissionRate / 100);
-                    final net = itemValue - commission;
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ..._deliveryItems
+                        .where((item) => item['isCarryForward'] != true)
+                        .map((item) {
+                      final sold = item['quantitySold'] as double;
+                      final unitPrice = item['unitPrice'] as double;
+                      final itemValue = sold * unitPrice;
+                      final commission =
+                          itemValue * (_claimSummary!.commissionRate / 100);
+                      final net = itemValue - commission;
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item['productName'] as String,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item['productName'] as String,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                '${sold.toStringAsFixed(0)} unit × RM ${unitPrice.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${sold.toStringAsFixed(0)} unit × RM ${unitPrice.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                'RM ${itemValue.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
+                                Text(
+                                  'RM ${itemValue.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Komisyen (${_claimSummary!.commissionRate.toStringAsFixed(1)}%)',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
+                              ],
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Komisyen (${_claimSummary!.commissionRate.toStringAsFixed(1)}%)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                '-RM ${commission.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.orange,
+                                Text(
+                                  '-RM ${commission.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.orange,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const Divider(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Jumlah',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
+                              ],
+                            ),
+                            const Divider(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Jumlah',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                'RM ${net.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.primary,
+                                Text(
+                                  'RM ${net.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primary,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    if (_deliveryItems.any((i) => i['isCarryForward'] == true)) ...[
+                      const Divider(height: 24),
+                      Text(
+                        'Item Carry Forward',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue[800],
+                        ),
                       ),
-                    );
-                  }).toList(),
+                      const SizedBox(height: 8),
+                      ..._deliveryItems
+                          .where((item) => item['isCarryForward'] == true)
+                          .map((item) {
+                        final sold = item['quantitySold'] as double;
+                        final unitPrice = item['unitPrice'] as double;
+                        final itemValue = sold * unitPrice;
+                        final commission =
+                            itemValue * (_claimSummary!.commissionRate / 100);
+                        final net = itemValue - commission;
+                        final unsold = item['quantityUnsold'] as double;
+                        final expired = item['quantityExpired'] as double;
+                        final damaged = item['quantityDamaged'] as double;
+                        final source = item['sourceClaimNumber'] as String?;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    item['productName'] as String,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue[50],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Text(
+                                      'C/F',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blue,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (source != null) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Dari tuntutan: $source',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 4),
+                              Text(
+                                '${sold.toStringAsFixed(0)} unit terjual × RM ${unitPrice.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              if (unsold > 0 || expired > 0 || damaged > 0) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Belum terjual: ${unsold.toStringAsFixed(1)}, Expired: ${expired.toStringAsFixed(1)}, Rosak: ${damaged.toStringAsFixed(1)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Komisyen (${_claimSummary!.commissionRate.toStringAsFixed(1)}%)',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  Text(
+                                    '-RM ${commission.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.orange,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Divider(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Jumlah',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    'RM ${net.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ],
                 ),
               ),
             ],

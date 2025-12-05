@@ -95,7 +95,13 @@ class PocketBizzApp extends StatelessWidget {
           final claimId = ModalRoute.of(context)!.settings.arguments as String;
           return ClaimDetailPage(claimId: claimId);
         },
-        '/payments/record': (context) => const RecordPaymentPage(), // New simple payment recording flow
+        '/payments/record': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
+          return RecordPaymentPage(
+            initialVendorId: args?['vendorId'] as String?,
+            initialClaimId: args?['claimId'] as String?,
+          ); // New simple payment recording flow
+        },
         '/payments/create': (context) => const CreatePaymentSimplifiedPage(), // Old simplified flow (for reference)
         '/payments/create-old': (context) => const CreateConsignmentPaymentPage(), // Keep old for reference
         '/settings': (context) => const SettingsPage(),

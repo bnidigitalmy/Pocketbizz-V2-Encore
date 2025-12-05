@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/consignment_claims_repository_supabase.dart';
+import '../../../data/repositories/consignment_payments_repository_supabase.dart';
 import '../../../data/models/consignment_claim.dart';
 import 'record_payment_page.dart';
 import '../../../core/utils/pdf_generator.dart' as pdf_gen;
@@ -29,10 +30,12 @@ class ClaimDetailPage extends StatefulWidget {
 
 class _ClaimDetailPageState extends State<ClaimDetailPage> {
   final _claimsRepo = ConsignmentClaimsRepositorySupabase();
+  final _paymentsRepo = ConsignmentPaymentsRepositorySupabase();
   final _businessProfileRepo = BusinessProfileRepository();
   
   ConsignmentClaim? _claim;
   BusinessProfile? _businessProfile;
+  List<Map<String, dynamic>> _payments = [];
   bool _isLoading = true;
   bool _isGeneratingPdf = false;
 
@@ -50,11 +53,17 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
         _claimsRepo.getClaimById(widget.claimId),
         _businessProfileRepo.getBusinessProfile(),
       ]);
-      
+      final claim = results[0] as ConsignmentClaim;
+      final businessProfile = results[1] as BusinessProfile?;
+
+      // Load payments for this claim
+      final payments = await _paymentsRepo.getPaymentsByClaim(claim.id);
+
       if (mounted) {
         setState(() {
-          _claim = results[0] as ConsignmentClaim;
-          _businessProfile = results[1] as BusinessProfile?;
+          _claim = claim;
+          _businessProfile = businessProfile;
+          _payments = payments;
           _isLoading = false;
         });
       }
@@ -251,6 +260,10 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
                           _buildItemsCard(),
                           const SizedBox(height: 16),
                         ],
+
+                        // Payments history
+                        _buildPaymentsCard(),
+                        const SizedBox(height: 16),
 
                         // Actions Card
                         _buildActionsCard(),
@@ -596,6 +609,10 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
                     final result = await Navigator.pushNamed(
                       context,
                       '/payments/record',
+                      arguments: {
+                        'vendorId': _claim!.vendorId,
+                        'claimId': _claim!.id,
+                      },
                     );
                     if (result == true) {
                       _loadClaim();
@@ -643,6 +660,86 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
                 ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentsCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Sejarah Bayaran',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_payments.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[100]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[600]),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Belum ada bayaran direkodkan untuk tuntutan ini'),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Column(
+                children: _payments.map((p) {
+                  final date = DateTime.parse(p['payment_date'] as String);
+                  final paymentNumber = p['payment_number'] as String? ?? '-';
+                  final paymentMethod = p['payment_method'] as String? ?? '';
+                  final paymentRef = p['payment_reference'] as String?;
+                  final notes = p['notes'] as String?;
+                  final allocated = (p['allocated_amount'] as num?)?.toDouble() ?? 0.0;
+                  final total = (p['total_amount'] as num?)?.toDouble() ?? 0.0;
+                  return Column(
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          paymentNumber,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(DateFormat('dd MMM yyyy').format(date)),
+                            Text('Kaedah: ${paymentMethod.replaceAll('_', ' ')}'),
+                            Text('Jumlah Bayaran: RM ${total.toStringAsFixed(2)}'),
+                            Text(
+                              'Diperuntuk ke tuntutan ini: RM ${allocated.toStringAsFixed(2)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            if (paymentRef != null && paymentRef.isNotEmpty)
+                              Text('Rujukan: $paymentRef'),
+                            if (notes != null && notes.isNotEmpty)
+                              Text('Nota: $notes'),
+                          ],
+                        ),
+                        leading: const Icon(Icons.payments),
+                      ),
+                      const Divider(),
+                    ],
+                  );
+                }).toList(),
+              ),
           ],
         ),
       ),

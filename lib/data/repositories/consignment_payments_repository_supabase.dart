@@ -355,6 +355,142 @@ class ConsignmentPaymentsRepositorySupabase {
     });
   }
 
+  /// Get payments allocated to a specific claim (payment + allocated amount)
+  Future<List<Map<String, dynamic>>> getPaymentsByClaim(String claimId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    // 1) Get allocations for the claim
+    final allocationsResponse = await supabase
+        .from('consignment_payment_allocations')
+        .select('payment_id, allocated_amount')
+        .eq('claim_id', claimId);
+
+    final allocations = allocationsResponse as List;
+    if (allocations.isEmpty) return [];
+
+    final paymentIds = allocations
+        .map((a) => (a as Map<String, dynamic>)['payment_id'] as String)
+        .toSet()
+        .toList();
+
+    // 2) Fetch payments in one query
+    final paymentsResponse = await supabase
+        .from('consignment_payments')
+        .select('''
+          *,
+          vendors (id, name, phone)
+        ''')
+        .eq('business_owner_id', userId)
+        .inFilter('id', paymentIds);
+
+    final payments = paymentsResponse as List;
+    final paymentsMap = <String, Map<String, dynamic>>{};
+    for (var p in payments) {
+      final pMap = p as Map<String, dynamic>;
+      paymentsMap[pMap['id'] as String] = pMap;
+    }
+
+    // 3) Merge allocated_amount into payment info
+    final result = <Map<String, dynamic>>[];
+    for (var alloc in allocations) {
+      final allocMap = alloc as Map<String, dynamic>;
+      final paymentId = allocMap['payment_id'] as String;
+      final payment = paymentsMap[paymentId];
+      if (payment == null) continue;
+      final vendor = payment['vendors'] as Map<String, dynamic>?;
+      result.add({
+        ...payment,
+        'vendor_name': vendor?['name'],
+        'allocated_amount': (allocMap['allocated_amount'] as num?)?.toDouble() ?? 0.0,
+      });
+    }
+
+    // Sort by payment_date desc
+    result.sort((a, b) {
+      final da = DateTime.parse(a['payment_date'] as String);
+      final db = DateTime.parse(b['payment_date'] as String);
+      return db.compareTo(da);
+    });
+
+    return result;
+  }
+
+  /// Simple helper: record payment for a single claim (any status) and allocate fully
+  Future<void> recordPaymentForClaim({
+    required String claimId,
+    required String vendorId,
+    required double amount,
+    required DateTime paymentDate,
+    String? paymentReference,
+    String? notes,
+  }) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    // Insert payment with simple retry to avoid duplicate payment_number race (unique constraint)
+    Map<String, dynamic>? paymentResponse;
+    int retries = 5;
+    bool usedFallbackNumber = false;
+
+    while (true) {
+      try {
+        paymentResponse = await supabase
+            .from('consignment_payments')
+            .insert({
+              'business_owner_id': userId,
+              'vendor_id': vendorId,
+              'payment_date': paymentDate.toIso8601String().split('T')[0],
+              'payment_method': 'per_claim',
+              'total_amount': amount,
+              'payment_reference': paymentReference,
+              'notes': notes,
+              if (usedFallbackNumber)
+                'payment_number':
+                    'PAY-${DateTime.now().millisecondsSinceEpoch}-${DateTime.now().microsecondsSinceEpoch % 1000}',
+            })
+            .select()
+            .single();
+        break; // success
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        final isDuplicate = msg.contains('23505') ||
+            msg.contains('duplicate key') ||
+            msg.contains('payment_number');
+        if (isDuplicate && retries > 0) {
+          retries--;
+          // jitter retry
+          await Future.delayed(
+              Duration(milliseconds: 120 + (retries * 40)));
+          // on final retry, force custom payment_number to avoid collision
+          if (retries == 0 && !usedFallbackNumber) {
+            usedFallbackNumber = true;
+            retries = 1; // one final attempt with fallback number
+          }
+          continue;
+        }
+        rethrow;
+      }
+    }
+
+    if (paymentResponse == null) {
+      throw Exception('Gagal merekod bayaran: tiada respons daripada pelayan');
+    }
+
+    final paymentId = paymentResponse['id'] as String;
+
+    // Insert allocation to the claim
+    await supabase.from('consignment_payment_allocations').insert({
+      'payment_id': paymentId,
+      'claim_id': claimId,
+      'allocated_amount': amount,
+    });
+  }
+
   /// Get outstanding balance for vendor
   Future<OutstandingBalance> getOutstandingBalance(String vendorId) async {
     final userId = SupabaseHelper.currentUserId;

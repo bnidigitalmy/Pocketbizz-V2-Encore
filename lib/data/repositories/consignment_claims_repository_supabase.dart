@@ -10,12 +10,16 @@ class ConsignmentClaimsRepositorySupabase {
   /// Create claim from deliveries
   /// Optional: itemMetadata to specify carry_forward_status per delivery item
   /// Format: {'<delivery_item_id>': {'carry_forward_status': 'carry_forward'|'loss'|'none'}}
+  /// Optional: carryForwardItems to include C/F items (not part of current deliveries)
+  /// Each item should include: delivery_id, delivery_item_id, product_name, quantity, unit_price,
+  /// quantity_sold, quantity_unsold, quantity_expired, quantity_damaged
   Future<ConsignmentClaim> createClaim({
     required String vendorId,
     required List<String> deliveryIds,
     required DateTime claimDate,
     String? notes,
     Map<String, Map<String, dynamic>>? itemMetadata,
+    List<Map<String, dynamic>>? carryForwardItems,
   }) async {
     final userId = SupabaseHelper.currentUserId;
     if (userId == null) {
@@ -25,23 +29,26 @@ class ConsignmentClaimsRepositorySupabase {
     String _buildInFilter(List<String> values) =>
         '(${values.map((v) => '"$v"').join(',')})';
 
-    // Get deliveries to validate
-    final deliveriesResponse = await supabase
-        .from('vendor_deliveries')
-        .select('id, vendor_id, vendor_name')
-        .filter('id', 'in', _buildInFilter(deliveryIds))
-        .eq('business_owner_id', userId);
+    List deliveries = [];
+    if (deliveryIds.isNotEmpty) {
+      // Get deliveries to validate
+      final deliveriesResponse = await supabase
+          .from('vendor_deliveries')
+          .select('id, vendor_id, vendor_name')
+          .filter('id', 'in', _buildInFilter(deliveryIds))
+          .eq('business_owner_id', userId);
 
-    final deliveries = deliveriesResponse as List;
-    if (deliveries.length != deliveryIds.length) {
-      throw Exception('Some deliveries not found');
-    }
+      deliveries = deliveriesResponse as List;
+      if (deliveries.length != deliveryIds.length) {
+        throw Exception('Some deliveries not found');
+      }
 
-    // Verify all deliveries are for the same vendor
-    final vendorIds =
-        deliveries.map((d) => (d as Map)['vendor_id'] as String).toSet();
-    if (vendorIds.length > 1 || !vendorIds.contains(vendorId)) {
-      throw Exception('All deliveries must be for the same vendor');
+      // Verify all deliveries are for the same vendor
+      final vendorIds =
+          deliveries.map((d) => (d as Map)['vendor_id'] as String).toSet();
+      if (vendorIds.length > 1 || !vendorIds.contains(vendorId)) {
+        throw Exception('All deliveries must be for the same vendor');
+      }
     }
 
     // Check if any delivery has already been claimed (draft, submitted, approved, settled, or rejected)
@@ -97,12 +104,22 @@ class ConsignmentClaimsRepositorySupabase {
     }
 
     // Get delivery items with quantities
-    final itemsResponse = await supabase
-        .from('vendor_delivery_items')
-        .select('*')
-        .filter('delivery_id', 'in', _buildInFilter(deliveryIds));
+    List deliveryItems = [];
+    if (deliveryIds.isNotEmpty) {
+      final itemsResponse = await supabase
+          .from('vendor_delivery_items')
+          .select('*')
+          .filter('delivery_id', 'in', _buildInFilter(deliveryIds));
+      deliveryItems = itemsResponse as List;
+    }
 
-    final deliveryItems = itemsResponse as List;
+    // Merge carry forward items as virtual delivery items (if any)
+    if (carryForwardItems != null && carryForwardItems.isNotEmpty) {
+      deliveryItems = [
+        ...deliveryItems,
+        ...carryForwardItems,
+      ];
+    }
 
     // Validate and auto-balance quantities
     final itemsToUpdate = <Map<String, dynamic>>[];
@@ -252,7 +269,9 @@ class ConsignmentClaimsRepositorySupabase {
     for (var item in deliveryItems) {
       final itemMap = item as Map<String, dynamic>;
       final sold = (itemMap['quantity_sold'] as num?)?.toDouble() ?? 0.0;
-      if (sold <= 0) continue; // Only include items with sold quantity
+      final unsold = (itemMap['quantity_unsold'] as num?)?.toDouble() ?? 0.0;
+      // Skip only if tiada jualan dan tiada baki/CF langsung
+      if (sold <= 0 && unsold <= 0) continue;
 
       final unitPrice = (itemMap['unit_price'] as num?)?.toDouble() ?? 0.0;
       final itemGross = sold * unitPrice;
@@ -711,7 +730,7 @@ class ConsignmentClaimsRepositorySupabase {
   /// This updates paid_amount and automatically recalculates balance_amount
   Future<ConsignmentClaim> updateClaimPayment({
     required String claimId,
-    required double paidAmount,
+    required double paidAmount, // treated as increment (add-on)
     DateTime? paymentDate,
     String? paymentReference,
     String? notes,
@@ -735,34 +754,34 @@ class ConsignmentClaimsRepositorySupabase {
 
     final claim = claimResponse as Map<String, dynamic>;
     final netAmount = (claim['net_amount'] as num?)?.toDouble() ?? 0.0;
+    final currentPaid = (claim['paid_amount'] as num?)?.toDouble() ?? 0.0;
 
-    // Validate paid amount doesn't exceed net amount
-    if (paidAmount > netAmount) {
+    final newPaid = currentPaid + paidAmount;
+
+    // Validate new paid amount doesn't exceed net amount
+    if (newPaid - netAmount > 0.01) {
       throw Exception(
           'Jumlah bayaran tidak boleh melebihi jumlah tuntutan (RM ${netAmount.toStringAsFixed(2)})');
     }
 
     // Calculate new balance
-    final newBalance = netAmount - paidAmount;
-    if (newBalance < 0) {
-      throw Exception('Jumlah bayaran tidak sah');
-    }
+    final newBalance = netAmount - newPaid;
 
     // Update claim with new paid amount
     // Database trigger will automatically update balance_amount
     final updateData = <String, dynamic>{
-      'paid_amount': paidAmount,
+      'paid_amount': newPaid,
       'balance_amount': newBalance,
       'updated_at': DateTime.now().toIso8601String(),
     };
 
     // Update status to settled if fully paid
-    if (paidAmount >= netAmount) {
+    if (newPaid >= netAmount - 0.0001) {
       updateData['status'] = 'settled';
       updateData['settled_at'] = DateTime.now().toIso8601String();
-    } else if (paidAmount > 0 && claim['status'] == 'approved') {
-      // Keep as approved if partially paid
-      updateData['status'] = 'approved';
+    } else if (paidAmount > 0) {
+      // Keep existing status if already approved/submitted
+      updateData['status'] = claim['status'];
     }
 
     // Add optional fields

@@ -327,6 +327,22 @@ class _ClaimsPageState extends State<ClaimsPage> {
     );
   }
 
+  Color _statusColor(ClaimStatus status) {
+    switch (status) {
+      case ClaimStatus.submitted:
+        return Colors.blue;
+      case ClaimStatus.approved:
+        return Colors.teal;
+      case ClaimStatus.settled:
+        return Colors.green;
+      case ClaimStatus.rejected:
+        return Colors.red;
+      case ClaimStatus.draft:
+      default:
+        return Colors.grey;
+    }
+  }
+
   Future<void> _exportCSV() async {
     // TODO: Implement CSV export
     ScaffoldMessenger.of(context).showSnackBar(
@@ -917,49 +933,64 @@ class _ClaimsPageState extends State<ClaimsPage> {
           children: [
             // Header
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
                               claim.claimNumber,
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey[600],
                               ),
                             ),
-                            Text(
-                              vendor.name,
-                              style: const TextStyle(
-                                fontSize: 16,
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _statusColor(claim.status).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              claim.status.name.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 11,
                                 fontWeight: FontWeight.bold,
+                                color: _statusColor(claim.status),
                               ),
                             ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        vendor.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                       if (hasOutstanding && daysOverdue > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _getOverdueBadgeColor(daysOverdue).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _getOverdueBadgeColor(daysOverdue).withOpacity(0.3),
-                            ),
-                          ),
-                          child: Text(
-                            '$daysOverdue hari',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: _getOverdueBadgeColor(daysOverdue),
-                            ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Icon(Icons.access_time, size: 12, color: _getOverdueBadgeColor(daysOverdue)),
+                              const SizedBox(width: 4),
+                              Text(
+                                '$daysOverdue hari tertunggak',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: _getOverdueBadgeColor(daysOverdue),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                     ],

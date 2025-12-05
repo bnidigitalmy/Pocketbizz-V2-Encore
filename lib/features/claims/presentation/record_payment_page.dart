@@ -3,13 +3,22 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/consignment_claims_repository_supabase.dart';
 import '../../../data/repositories/vendors_repository_supabase.dart';
+import '../../../data/repositories/consignment_payments_repository_supabase.dart';
 import '../../../data/models/vendor.dart';
 import '../../../data/models/consignment_claim.dart';
 
 /// Record Payment Page
 /// Simple flow: Select vendor → Select claim → Enter amount received → Update claim
 class RecordPaymentPage extends StatefulWidget {
-  const RecordPaymentPage({super.key});
+  const RecordPaymentPage({
+    super.key,
+    this.initialVendorId,
+    this.initialClaimId,
+  });
+
+  /// Optional: preselect vendor and claim when opened from Claim Detail
+  final String? initialVendorId;
+  final String? initialClaimId;
 
   @override
   State<RecordPaymentPage> createState() => _RecordPaymentPageState();
@@ -18,6 +27,7 @@ class RecordPaymentPage extends StatefulWidget {
 class _RecordPaymentPageState extends State<RecordPaymentPage> {
   final _claimsRepo = ConsignmentClaimsRepositorySupabase();
   final _vendorsRepo = VendorsRepositorySupabase();
+  final _paymentsRepo = ConsignmentPaymentsRepositorySupabase();
 
   // Step management
   int _currentStep = 1;
@@ -29,6 +39,7 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
   Vendor? _selectedVendor;
   List<ConsignmentClaim> _claims = [];
   ConsignmentClaim? _selectedClaim;
+  List<Map<String, dynamic>> _claimPayments = [];
   DateTime _paymentDate = DateTime.now();
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _referenceController = TextEditingController();
@@ -42,6 +53,7 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
   void initState() {
     super.initState();
     _loadVendors();
+    // If opened with preselected vendor/claim, try to prefill after vendors are loaded
   }
 
   @override
@@ -61,6 +73,11 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
           _vendors = vendors;
           _isLoading = false;
         });
+
+        // Prefill selection if arguments were provided
+        if (widget.initialVendorId != null) {
+          _prefillVendorAndClaim();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -70,18 +87,35 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
     }
   }
 
-  Future<void> _loadClaims() async {
+  Future<void> _prefillVendorAndClaim() async {
+    final vendorId = widget.initialVendorId;
+    if (vendorId == null) return;
+
+    // Set vendor selection
+    setState(() {
+      _selectedVendorId = vendorId;
+      _selectedVendor = _vendors.firstWhere(
+        (v) => v.id == vendorId,
+        orElse: () => _vendors.first,
+      );
+    });
+
+    // Load claims and preselect claim if provided
+    await _loadClaims(preselectClaimId: widget.initialClaimId);
+  }
+
+  Future<void> _loadClaims({String? preselectClaimId}) async {
     if (_selectedVendorId == null) return;
 
     setState(() => _isLoading = true);
     try {
       final claims = await _claimsRepo.getClaimsByVendor(_selectedVendorId!);
-      // Filter only approved/submitted claims with balance > 0
-      final outstandingClaims = claims
-          .where((c) => 
-              (c.status == ClaimStatus.approved || c.status == ClaimStatus.submitted) &&
-              c.balanceAmount > 0)
-          .toList();
+      // Filter claims with outstanding balance and not settled/rejected
+      final outstandingClaims = claims.where((c) {
+        final hasBalance = c.balanceAmount > 0;
+        final allowStatus = c.status != ClaimStatus.settled && c.status != ClaimStatus.rejected;
+        return hasBalance && allowStatus;
+      }).toList();
       
       // Load full claim details with items for each claim
       final claimsWithDetails = <ConsignmentClaim>[];
@@ -102,6 +136,27 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
           _amountController.clear();
           _isLoading = false;
         });
+
+        // If a claimId is provided (from Claim Detail), preselect it
+        if (preselectClaimId != null) {
+          final match = claimsWithDetails.where((c) => c.id == preselectClaimId).toList();
+          if (match.isNotEmpty) {
+            _onClaimSelected(match.first);
+            // Jump to step 2 (Payment Details) since selection is done
+            setState(() {
+              _currentStep = 2;
+            });
+          }
+        }
+
+        // If still empty, log summary for debugging
+        if (_claims.isEmpty) {
+          final statusCounts = <String, int>{};
+          for (final c in claims) {
+            statusCounts[c.status.toString()] = (statusCounts[c.status.toString()] ?? 0) + 1;
+          }
+          debugPrint('No outstanding claims. Status summary: $statusCounts');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -131,6 +186,7 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
       setState(() {
         _selectedClaim = null;
         _amountController.clear();
+        _claimPayments = [];
       });
       return;
     }
@@ -139,12 +195,18 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
     setState(() => _isLoading = true);
     try {
       final fullClaim = await _claimsRepo.getClaimById(claim.id);
+      final payments = await _paymentsRepo.getPaymentsByClaim(claim.id);
       if (mounted) {
         setState(() {
           _selectedClaim = fullClaim;
           // Auto-fill with remaining balance
           _amountController.text = fullClaim.balanceAmount.toStringAsFixed(2);
+          _claimPayments = payments;
           _isLoading = false;
+          // If coming from preselect flow, move to step 2 automatically
+          if (widget.initialClaimId != null && widget.initialClaimId == claim.id) {
+            _currentStep = 2;
+          }
         });
       }
     } catch (e) {
@@ -152,6 +214,7 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
         setState(() {
           _selectedClaim = claim; // Use basic claim if error
           _amountController.text = claim.balanceAmount.toStringAsFixed(2);
+          _claimPayments = [];
           _isLoading = false;
         });
         _showError('Ralat memuatkan butiran tuntutan: $e');
@@ -211,9 +274,11 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
     try {
       final amount = double.parse(_amountController.text);
 
-      await _claimsRepo.updateClaimPayment(
+      // Rekod payment entry + allocation (trigger DB akan auto update claim paid/balance/status)
+      await _paymentsRepo.recordPaymentForClaim(
         claimId: _selectedClaim!.id,
-        paidAmount: amount,
+        vendorId: _selectedClaim!.vendorId,
+        amount: amount,
         paymentDate: _paymentDate,
         paymentReference: _referenceController.text.isEmpty
             ? null
@@ -624,6 +689,51 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
             ),
           ),
           const SizedBox(height: 24),
+          if (_claimPayments.isNotEmpty) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Sejarah Bayaran untuk Tuntutan Ini',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ..._claimPayments.map((p) {
+                      final date = DateTime.parse(p['payment_date'] as String);
+                      final paymentNumber = p['payment_number'] as String? ?? '-';
+                      final ref = p['payment_reference'] as String?;
+                      final allocated = (p['allocated_amount'] as num?)?.toDouble() ?? 0.0;
+                      return Column(
+                        children: [
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.payments),
+                            title: Text(paymentNumber, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(DateFormat('dd MMM yyyy').format(date)),
+                                Text('Diperuntuk: RM ${allocated.toStringAsFixed(2)}'),
+                                if (ref != null && ref.isNotEmpty) Text('Rujukan: $ref'),
+                              ],
+                            ),
+                          ),
+                          const Divider(),
+                        ],
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
         ],
         Card(
           child: Padding(
@@ -678,6 +788,38 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
                     prefixText: 'RM ',
                   ),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    OutlinedButton(
+                      onPressed: _selectedClaim == null
+                          ? null
+                          : () {
+                              _amountController.text = _selectedClaim!.balanceAmount.toStringAsFixed(2);
+                              setState(() {});
+                            },
+                      child: const Text('Bayar Penuh'),
+                    ),
+                    OutlinedButton(
+                      onPressed: _selectedClaim == null
+                          ? null
+                          : () {
+                              final half = (_selectedClaim!.balanceAmount / 2).clamp(0, _selectedClaim!.balanceAmount);
+                              _amountController.text = half.toStringAsFixed(2);
+                              setState(() {});
+                            },
+                      child: const Text('50%'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () {
+                        _amountController.clear();
+                        setState(() {});
+                      },
+                      child: const Text('Kosongkan'),
+                    ),
+                  ],
                 ),
                 if (_selectedClaim != null) ...[
                   const SizedBox(height: 8),
@@ -849,8 +991,8 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 140,
+          Flexible(
+            flex: 4,
             child: Text(
               label,
               style: TextStyle(
@@ -859,13 +1001,16 @@ class _RecordPaymentPageState extends State<RecordPaymentPage> {
               ),
             ),
           ),
-          Expanded(
+          const SizedBox(width: 8),
+          Flexible(
+            flex: 6,
             child: Text(
               value,
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
+              softWrap: true,
             ),
           ),
         ],
