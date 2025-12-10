@@ -250,24 +250,26 @@ class _LoginPageState extends State<LoginPage> {
                       useLogoWithText: true,
                     ),
                     const SizedBox(height: 12),
-                    // Trial badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: badgeBg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'Trial Percuma 7 Hari',
-                        style: const TextStyle(
-                          color: AppColors.warning,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
+                    // Trial badge (only show in sign up mode)
+                    if (_isSignUp) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: badgeBg,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        textAlign: TextAlign.center,
+                        child: const Text(
+                          'Trial Percuma 7 Hari',
+                          style: TextStyle(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
+                    ],
                     Text(
                       _isSignUp ? 'Daftar PocketBizz' : 'Log Masuk PocketBizz',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -280,7 +282,7 @@ class _LoginPageState extends State<LoginPage> {
                     Text(
                       _isSignUp
                           ? 'Tiada credit card diperlukan. Setup dalam 5 minit.'
-                          : 'Masuk untuk teruskan operasi anda.',
+                          : 'Masukkan email dan password anda untuk log masuk.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: AppColors.textSecondary,
                           ),
