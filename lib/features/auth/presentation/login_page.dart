@@ -159,7 +159,8 @@ class _LoginPageState extends State<LoginPage> {
               ),
             );
 
-            setState(() => _isSignUp = false);
+            // Navigate to home page after successful signup
+            Navigator.of(context).pushReplacementNamed('/home');
           }
         }
       } else {
@@ -193,10 +194,24 @@ class _LoginPageState extends State<LoginPage> {
       }
     } on AuthException catch (e) {
       if (mounted) {
+        String errorMessage = e.message;
+        // Translate common error messages to Bahasa Malaysia
+        if (e.message.contains('Invalid login credentials') || 
+            e.message.contains('Invalid email or password')) {
+          errorMessage = 'Email atau kata laluan tidak betul. Sila cuba lagi.';
+        } else if (e.message.contains('Email not confirmed')) {
+          errorMessage = 'Sila semak email anda untuk pengesahan akaun.';
+        } else if (e.message.contains('User already registered')) {
+          errorMessage = 'Email ini sudah didaftarkan. Sila log masuk.';
+        } else if (e.message.contains('Password')) {
+          errorMessage = 'Kata laluan tidak memenuhi syarat. Sila cuba lagi.';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.message),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
@@ -204,8 +219,9 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text('Ralat: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
