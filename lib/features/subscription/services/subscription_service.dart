@@ -3,6 +3,7 @@ import '../data/models/subscription.dart';
 import '../data/models/subscription_plan.dart';
 import '../data/models/plan_limits.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 
 /// Subscription Service
 /// Business logic for subscription management
@@ -58,8 +59,7 @@ class SubscriptionService {
     return await _repo.getPlanLimits();
   }
 
-  /// Redirect to bcl.my payment form
-  /// Based on the React code provided
+  /// Redirect to bcl.my payment form with order_id and pending session
   Future<void> redirectToPayment({
     required int durationMonths,
     required String planId,
@@ -77,8 +77,31 @@ class SubscriptionService {
       throw Exception('Invalid duration: $durationMonths');
     }
 
+    // Fetch plan & pricing
+    final plan = await _repo.getPlanById(planId);
+    final isEarlyAdopter = await _repo.isEarlyAdopter();
+    final pricePerMonth = isEarlyAdopter ? 29.0 : plan.pricePerMonth;
+    final totalAmount = isEarlyAdopter ? plan.getPriceForEarlyAdopter() : plan.totalPrice;
+
+    // Generate order id
+    final orderId = 'PBZ-${const Uuid().v4()}';
+
+    // Create pending subscription & payment
+    await _repo.createPendingPaymentSession(
+      planId: planId,
+      orderId: orderId,
+      totalAmount: totalAmount,
+      pricePerMonth: pricePerMonth,
+      isEarlyAdopter: isEarlyAdopter,
+    );
+
+    // Append order_id to URL for callback identification
+    final uri = Uri.parse(url).replace(queryParameters: {
+      ...Uri.parse(url).queryParameters,
+      'order_id': orderId,
+    });
+
     // Open URL in browser
-    final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
@@ -114,6 +137,17 @@ class SubscriptionService {
     } catch (e) {
       throw Exception('Failed to process payment callback: $e');
     }
+  }
+
+  /// Confirm pending payment (order_id) and activate subscription
+  Future<Subscription> confirmPendingPayment({
+    required String orderId,
+    String? gatewayTransactionId,
+  }) async {
+    return _repo.activatePendingPayment(
+      orderId: orderId,
+      gatewayTransactionId: gatewayTransactionId,
+    );
   }
 
   /// Get subscription history

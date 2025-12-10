@@ -65,10 +65,16 @@ class ProductsRepositorySupabase {
 
   /// Get all products
   Future<List<Product>> getAll() async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     try {
       final response = await supabase
           .from('products')
           .select()
+          .eq('business_owner_id', userId) // Filter by user's business_owner_id
           .eq('is_active', true)
           .order('name', ascending: true);
 
@@ -80,10 +86,16 @@ class ProductsRepositorySupabase {
 
   /// Get product by ID
   Future<Product> getProduct(String id) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final data = await supabase
         .from('products')
         .select()
         .eq('id', id)
+        .eq('business_owner_id', userId) // Filter by user's business_owner_id
         .single();
 
     return _fromSupabaseJson(data);
@@ -95,7 +107,15 @@ class ProductsRepositorySupabase {
     String? searchQuery,
     int limit = 100,
   }) async {
-    var query = supabase.from('products').select();
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    var query = supabase
+        .from('products')
+        .select()
+        .eq('business_owner_id', userId); // Filter by user's business_owner_id
 
     // Apply filters if provided
     if (category != null && category.isNotEmpty) {
@@ -113,6 +133,11 @@ class ProductsRepositorySupabase {
 
   /// Update product
   Future<Product> updateProduct(String id, Map<String, dynamic> updates) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final data = await supabase
         .from('products')
         .update({
@@ -120,6 +145,7 @@ class ProductsRepositorySupabase {
           'updated_at': DateTime.now().toIso8601String(),
         })
         .eq('id', id)
+        .eq('business_owner_id', userId) // Filter by user's business_owner_id
         .select()
         .single();
 
@@ -128,14 +154,29 @@ class ProductsRepositorySupabase {
 
   /// Delete product
   Future<void> deleteProduct(String id) async {
-    await supabase.from('products').delete().eq('id', id);
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    await supabase
+        .from('products')
+        .delete()
+        .eq('id', id)
+        .eq('business_owner_id', userId); // Filter by user's business_owner_id
   }
 
   /// Search products
   Future<List<Product>> searchProducts(String query) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final data = await supabase
         .from('products')
         .select()
+        .eq('business_owner_id', userId) // Filter by user's business_owner_id
         .or('name.ilike.%$query%,sku.ilike.%$query%')
         .limit(20);
 

@@ -10,6 +10,21 @@ import '../../../../core/supabase/supabase_client.dart';
 class SubscriptionRepositorySupabase {
   final SupabaseClient _supabase = supabase;
 
+  /// Get plan by id
+  Future<SubscriptionPlan> getPlanById(String planId) async {
+    try {
+      final response = await _supabase
+          .from('subscription_plans')
+          .select()
+          .eq('id', planId)
+          .single();
+
+      return SubscriptionPlan.fromJson(response as Map<String, dynamic>);
+    } catch (e) {
+      throw Exception('Failed to fetch plan: $e');
+    }
+  }
+
   /// Get all available subscription plans
   Future<List<SubscriptionPlan>> getAvailablePlans() async {
     try {
@@ -384,6 +399,151 @@ class SubscriptionRepositorySupabase {
       }
     } catch (e) {
       throw Exception('Failed to update subscription status: $e');
+    }
+  }
+
+  /// Create pending subscription + pending payment record before redirect
+  Future<String> createPendingPaymentSession({
+    required String planId,
+    required String orderId,
+    required double totalAmount,
+    required double pricePerMonth,
+    required bool isEarlyAdopter,
+  }) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      final plan = await getPlanById(planId);
+      final discountApplied = (pricePerMonth * plan.durationMonths) - totalAmount;
+      final now = DateTime.now();
+      final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+
+      // Create pending subscription
+      final subResponse = await _supabase
+          .from('subscriptions')
+          .insert({
+            'user_id': userId,
+            'plan_id': planId,
+            'price_per_month': pricePerMonth,
+            'total_amount': totalAmount,
+            'discount_applied': discountApplied,
+            'is_early_adopter': isEarlyAdopter,
+            'status': 'pending_payment',
+            'expires_at': expiresAt.toIso8601String(),
+            'payment_gateway': 'bcl_my',
+            'payment_reference': orderId,
+            'payment_status': 'pending',
+            'auto_renew': false,
+          })
+          .select('id')
+          .single();
+
+      final subscriptionId = (subResponse as Map<String, dynamic>)['id'] as String;
+
+      // Create pending payment record
+      await _supabase.from('subscription_payments').insert({
+        'subscription_id': subscriptionId,
+        'user_id': userId,
+        'amount': totalAmount,
+        'currency': 'MYR',
+        'payment_gateway': 'bcl_my',
+        'payment_reference': orderId,
+        'status': 'pending',
+      });
+
+      return subscriptionId;
+    } catch (e) {
+      throw Exception('Failed to create pending payment session: $e');
+    }
+  }
+
+  /// Activate pending subscription when payment succeeds
+  Future<Subscription> activatePendingPayment({
+    required String orderId,
+    String? gatewayTransactionId,
+  }) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Fetch pending subscription by payment_reference
+      final pending = await _supabase
+          .from('subscriptions')
+          .select()
+          .eq('payment_reference', orderId)
+          .eq('user_id', userId)
+          .eq('status', 'pending_payment')
+          .maybeSingle();
+
+      if (pending == null) {
+        throw Exception('No pending subscription found for order $orderId');
+      }
+
+      final pendingData = pending as Map<String, dynamic>;
+      final planId = pendingData['plan_id'] as String;
+      final plan = await getPlanById(planId);
+      final pricePerMonth = (pendingData['price_per_month'] as num).toDouble();
+      final totalAmount = (pendingData['total_amount'] as num).toDouble();
+
+      final now = DateTime.now();
+      final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+
+      // Expire any existing active/trial for this user (to satisfy unique index)
+      await _supabase
+          .from('subscriptions')
+          .update({
+            'status': 'expired',
+            'updated_at': now.toIso8601String(),
+          })
+          .eq('user_id', userId)
+          .inFilter('status', ['trial', 'active']);
+
+      // Activate pending subscription
+      final updated = await _supabase
+          .from('subscriptions')
+          .update({
+            'status': 'active',
+            'started_at': now.toIso8601String(),
+            'expires_at': expiresAt.toIso8601String(),
+            'payment_status': 'completed',
+            'payment_completed_at': now.toIso8601String(),
+            'updated_at': now.toIso8601String(),
+          })
+          .eq('id', pendingData['id'] as String)
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''')
+          .single();
+
+      // Update payment record to completed
+      await _supabase
+          .from('subscription_payments')
+          .update({
+            'status': 'completed',
+            'paid_at': now.toIso8601String(),
+            'gateway_transaction_id': gatewayTransactionId,
+          })
+          .eq('payment_reference', orderId);
+
+      final json = updated as Map<String, dynamic>;
+      final planData = json['subscription_plans'] as Map<String, dynamic>?;
+      if (planData != null) {
+        json['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
+        json['duration_months'] = planData['duration_months'] as int? ?? plan.durationMonths;
+      }
+
+      return Subscription.fromJson(json);
+    } catch (e) {
+      throw Exception('Failed to activate pending payment: $e');
     }
   }
 }

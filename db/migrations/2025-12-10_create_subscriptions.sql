@@ -113,6 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_subscription_payments_subscription_id ON subscrip
 CREATE INDEX IF NOT EXISTS idx_subscription_payments_user_id ON subscription_payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_payments_status ON subscription_payments(status);
 CREATE INDEX IF NOT EXISTS idx_subscription_payments_gateway_transaction_id ON subscription_payments(gateway_transaction_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_payments_payment_reference ON subscription_payments(payment_reference);
 
 CREATE INDEX IF NOT EXISTS idx_early_adopters_user_id ON early_adopters(user_id);
 CREATE INDEX IF NOT EXISTS idx_early_adopters_registered_at ON early_adopters(registered_at);

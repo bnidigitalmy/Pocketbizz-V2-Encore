@@ -555,6 +555,45 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           ),
         ),
         const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.success.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.success.withOpacity(0.3)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.local_fire_department, color: AppColors.success, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'Early Bird: 100 pengguna pertama RM29/bulan',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Diskaun automatik dipaparkan jika layak. Harga standard RM39/bulan.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
         if (_currentSubscription != null && _currentSubscription!.isOnTrial)
           Container(
             padding: const EdgeInsets.all(12),
@@ -609,20 +648,21 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppColors.info.withOpacity(0.1),
+            color: Colors.amber.shade50,
             borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.amber.shade200),
           ),
           child: Row(
             children: [
-              Icon(Icons.warning_amber, color: AppColors.info, size: 20),
+              Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800, size: 22),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'PENTING: Gunakan email yang sama (${supabase.auth.currentUser?.email ?? ''}) semasa isi borang pembayaran',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.info,
+                    color: Colors.amber.shade900,
                   ),
                 ),
               ),
@@ -650,10 +690,25 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     final canUpgrade = _currentSubscription == null || 
                        _currentSubscription!.isOnTrial || 
                        _currentSubscription!.status == SubscriptionStatus.expired;
+    final isPopular = plan.durationMonths == 6;
+    final cardColor = isCurrentPlan
+        ? AppColors.primary.withOpacity(0.1)
+        : isPopular
+            ? const Color(0xFFE6F4EA) // soft green for contrast
+            : null;
+    final borderColor = isCurrentPlan
+        ? AppColors.primary
+        : isPopular
+            ? AppColors.primary.withOpacity(0.6)
+            : Colors.grey.withOpacity(0.2);
 
     return Card(
-      elevation: isCurrentPlan ? 4 : 2,
-      color: isCurrentPlan ? AppColors.primary.withOpacity(0.1) : null,
+      elevation: isCurrentPlan ? 6 : (isPopular ? 5 : 2),
+      color: cardColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: borderColor, width: isPopular ? 1.4 : 1),
+      ),
       child: InkWell(
         onTap: _processingPayment || !canUpgrade || isCurrentPlan 
             ? null 
@@ -664,23 +719,54 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (savingsText != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.success,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    savingsText,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (isPopular)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.deepOrange,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.deepOrange.withOpacity(0.35),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        'Paling Popular',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 1),
+                  if (savingsText != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.success,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        savingsText,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              if (savingsText != null) const SizedBox(height: 8),
+                ],
+              ),
+              if (savingsText != null || isPopular) const SizedBox(height: 12),
               Text(
                 '${plan.durationMonths} Bulan',
                 style: const TextStyle(
@@ -709,6 +795,18 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                   fontSize: 12,
                   color: AppColors.textSecondary,
                 ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _isEarlyAdopter
+                    ? 'Harga Early Bird aktif (RM29/bulan)'
+                    : 'Early Bird: 100 pengguna pertama RM29/bulan',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _isEarlyAdopter ? AppColors.success : AppColors.textSecondary,
+                  fontWeight: _isEarlyAdopter ? FontWeight.w600 : FontWeight.w400,
+                ),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
               if (isCurrentPlan)
