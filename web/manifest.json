@@ -1,11 +1,11 @@
 {
-    "name": "pocketbizz",
-    "short_name": "pocketbizz",
+    "name": "PocketBizz - Sistem Operasi SME & F&B",
+    "short_name": "PocketBizz",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#14B8A6",
+    "theme_color": "#14B8A6",
+    "description": "Sistem operasi lengkap untuk SME & F&B Malaysia. Urus stok, pengeluaran, jualan, konsainan, vendor claims & laporan dalam satu platform.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
