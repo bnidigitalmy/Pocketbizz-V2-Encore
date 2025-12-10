@@ -40,6 +40,7 @@ import 'features/reports/presentation/reports_page.dart';
 import 'features/drive_sync/presentation/drive_sync_page.dart';
 import 'features/documents/presentation/documents_page.dart';
 import 'features/subscription/presentation/subscription_page.dart';
+import 'features/subscription/presentation/payment_success_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,6 +79,9 @@ class PocketBizzApp extends StatelessWidget {
       home: const AuthWrapper(),
       routes: {
         '/login': (context) => const LoginPage(),
+        '/auth/login': (context) => const LoginPage(),
+        '/register': (context) => const LoginPage(initialSignUp: true),
+        '/auth/register': (context) => const LoginPage(initialSignUp: true),
         '/forgot-password': (context) => const ForgotPasswordPage(),
         '/reset-password': (context) => const ResetPasswordPage(),
         '/home': (context) => const HomePage(),
@@ -121,6 +125,7 @@ class PocketBizzApp extends StatelessWidget {
         '/drive-sync': (context) => const DriveSyncPage(),
         '/documents': (context) => const DocumentsPage(),
         '/subscription': (context) => const SubscriptionPage(),
+        '/payment-success': (context) => const PaymentSuccessPage(),
       },
     );
   }
