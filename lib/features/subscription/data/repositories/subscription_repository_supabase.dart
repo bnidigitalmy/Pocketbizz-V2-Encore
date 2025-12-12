@@ -671,29 +671,31 @@ class SubscriptionRepositorySupabase {
       final totalAmount = (pendingData['total_amount'] as num).toDouble();
 
       final now = DateTime.now();
-      
-      // Check if this is an extend payment (expires_at is in the future from now)
       final pendingExpiresAt = DateTime.parse(pendingData['expires_at'] as String);
-      final isExtend = pendingExpiresAt.isAfter(now.add(const Duration(days: 1))); // More than 1 day in future
+      
+      // Check if this is an extend payment by checking if user has active subscription
+      // and pending expires_at is after current subscription's expires_at
+      final existingActive = await _supabase
+          .from('subscriptions')
+          .select()
+          .eq('user_id', userId)
+          .eq('status', 'active')
+          .maybeSingle();
       
       DateTime expiresAt;
       DateTime graceUntil;
+      bool isExtend = false;
       
-      if (isExtend) {
-        // For extend: use the calculated expiry date from pending subscription
-        // This was already calculated in createPendingPaymentSession by adding to current expiry
-        expiresAt = pendingExpiresAt;
-        graceUntil = expiresAt.add(const Duration(days: 7));
+      if (existingActive != null) {
+        final currentExpiresAt = DateTime.parse(existingActive['expires_at'] as String);
+        // If pending expires_at is after current expires_at, this is an extend
+        isExtend = pendingExpiresAt.isAfter(currentExpiresAt);
         
-        // Find and update existing active subscription instead of creating new one
-        final existingActive = await _supabase
-            .from('subscriptions')
-            .select()
-            .eq('user_id', userId)
-            .eq('status', 'active')
-            .maybeSingle();
-        
-        if (existingActive != null) {
+        if (isExtend) {
+          // For extend: use the calculated expiry date from pending subscription
+          // This was already calculated in createPendingPaymentSession by adding to current expiry
+          expiresAt = pendingExpiresAt;
+          graceUntil = expiresAt.add(const Duration(days: 7));
           // Update existing subscription expiry date
           final updated = await _supabase
               .from('subscriptions')
@@ -794,7 +796,7 @@ class SubscriptionRepositorySupabase {
         }
       }
       
-      // For new subscription: calculate from now
+      // For new subscription (not extend): calculate from now
       expiresAt = now.add(Duration(days: plan.durationMonths * 30));
       graceUntil = expiresAt.add(const Duration(days: 7));
 

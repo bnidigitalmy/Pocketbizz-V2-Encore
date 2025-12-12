@@ -333,35 +333,120 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Database error" }, 500);
       }
 
-      const durationMonths = plan?.duration_months ?? 1;
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + durationMonths * 30);
-
-      // Expire other active/trial subs for this user
-      await supabase
+      // Check if this is an extend payment
+      // Get pending subscription to check expires_at
+      const { data: pendingSub, error: pendingSubError } = await supabase
         .from("subscriptions")
-        .update({ status: "expired", updated_at: nowIso })
+        .select("expires_at, status")
+        .eq("id", subscription.id)
+        .maybeSingle();
+
+      // Check if user has active subscription (for extend logic)
+      const { data: activeSub, error: activeSubError } = await supabase
+        .from("subscriptions")
+        .select("expires_at, id")
         .eq("user_id", subscription.user_id)
-        .in("status", ["trial", "active"])
-        .neq("id", subscription.id);
+        .eq("status", "active")
+        .maybeSingle();
 
-      // Activate subscription
-      const { error: subUpdateError } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "active",
-          started_at: nowIso,
-          expires_at: expiresAt.toISOString(),
-          payment_status: "completed",
-          payment_completed_at: nowIso,
-          updated_at: nowIso,
-          payment_reference: orderNumber,
-        })
-        .eq("id", subscription.id);
+      let expiresAt: Date;
+      let isExtend = false;
 
-      if (subUpdateError) {
-        console.error(`[${new Date().toISOString()}] Failed to activate subscription:`, subUpdateError);
-        return jsonResponse({ error: "Failed to activate subscription" }, 500);
+      if (pendingSub && activeSub && activeSub.id !== subscription.id) {
+        // Check if pending expires_at is after current active expires_at (extend)
+        const pendingExpiresAt = new Date(pendingSub.expires_at as string);
+        const currentExpiresAt = new Date(activeSub.expires_at as string);
+        
+        if (pendingExpiresAt > currentExpiresAt) {
+          // This is an extend - use the calculated expires_at from pending subscription
+          isExtend = true;
+          expiresAt = pendingExpiresAt;
+          console.log(`[${new Date().toISOString()}] Extend payment detected. Using expires_at from pending: ${expiresAt.toISOString()}`);
+        } else {
+          // New subscription - calculate from now
+          const durationMonths = plan?.duration_months ?? 1;
+          expiresAt = new Date();
+          expiresAt.setDate(expiresAt.getDate() + durationMonths * 30);
+        }
+      } else if (pendingSub && pendingSub.expires_at) {
+        // Use expires_at from pending subscription (already calculated correctly)
+        expiresAt = new Date(pendingSub.expires_at as string);
+        console.log(`[${new Date().toISOString()}] Using expires_at from pending subscription: ${expiresAt.toISOString()}`);
+      } else {
+        // Fallback: calculate from now
+        const durationMonths = plan?.duration_months ?? 1;
+        expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + durationMonths * 30);
+      }
+
+      if (isExtend) {
+        // For extend: update existing active subscription instead of creating new one
+        const graceUntil = new Date(expiresAt);
+        graceUntil.setDate(graceUntil.getDate() + 7);
+
+        const { error: extendError } = await supabase
+          .from("subscriptions")
+          .update({
+            expires_at: expiresAt.toISOString(),
+            grace_until: graceUntil.toISOString(),
+            payment_status: "completed",
+            payment_completed_at: nowIso,
+            updated_at: nowIso,
+            payment_reference: orderNumber,
+          })
+          .eq("id", activeSub.id);
+
+        if (extendError) {
+          console.error(`[${new Date().toISOString()}] Failed to extend subscription:`, extendError);
+          return jsonResponse({ error: "Failed to extend subscription" }, 500);
+        }
+
+        // Delete pending subscription (we're extending existing one)
+        await supabase
+          .from("subscriptions")
+          .delete()
+          .eq("id", subscription.id);
+
+        // Update payment record to point to existing subscription
+        await supabase
+          .from("subscription_payments")
+          .update({
+            subscription_id: activeSub.id,
+          })
+          .eq("id", payment.id);
+
+        console.log(`[${new Date().toISOString()}] Subscription extended successfully`);
+      } else {
+        // For new subscription: expire other active/trial subs for this user
+        await supabase
+          .from("subscriptions")
+          .update({ status: "expired", updated_at: nowIso })
+          .eq("user_id", subscription.user_id)
+          .in("status", ["trial", "active"])
+          .neq("id", subscription.id);
+
+        // Activate subscription
+        const graceUntil = new Date(expiresAt);
+        graceUntil.setDate(graceUntil.getDate() + 7);
+
+        const { error: activateError } = await supabase
+          .from("subscriptions")
+          .update({
+            status: "active",
+            started_at: nowIso,
+            expires_at: expiresAt.toISOString(),
+            grace_until: graceUntil.toISOString(),
+            payment_status: "completed",
+            payment_completed_at: nowIso,
+            updated_at: nowIso,
+            payment_reference: orderNumber,
+          })
+          .eq("id", subscription.id);
+
+        if (activateError) {
+          console.error(`[${new Date().toISOString()}] Failed to activate subscription:`, activateError);
+          return jsonResponse({ error: "Failed to activate subscription" }, 500);
+        }
       }
 
       // Verify amount for prorated payments
