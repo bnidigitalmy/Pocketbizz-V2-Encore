@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import '../../../../core/utils/date_time_helper.dart';
 
 /// Subscription Payment Model
 /// Represents a payment record for subscription
@@ -125,12 +126,12 @@ class SubscriptionPayment {
 
   String get formattedDate {
     final date = paidAt ?? createdAt;
-    return DateFormat('dd MMM yyyy, hh:mm a', 'ms').format(date);
+    return DateTimeHelper.formatDateTime(date);
   }
 
   String get formattedDateShort {
     final date = paidAt ?? createdAt;
-    return DateFormat('dd MMM yyyy', 'ms').format(date);
+    return DateTimeHelper.formatDate(date);
   }
 
   String get formattedPaymentMethod {

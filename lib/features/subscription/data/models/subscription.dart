@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import '../../../../core/utils/date_time_helper.dart';
 
 /// Subscription Model
 /// Represents user's subscription status
@@ -227,14 +228,14 @@ class Subscription {
   /// Get formatted start date
   String get formattedStartDate {
     final date = startedAt ?? trialStartedAt ?? createdAt;
-    return DateFormat('dd MMM yyyy', 'ms').format(date);
+    return DateTimeHelper.formatDate(date);
   }
 
   /// Get formatted end date
   String get formattedEndDate {
     final date = isOnTrial ? trialEndsAt : expiresAt;
     if (date == null) return '-';
-    return DateFormat('dd MMM yyyy', 'ms').format(date);
+    return DateTimeHelper.formatDate(date);
   }
 }
 

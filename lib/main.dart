@@ -5,6 +5,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/supabase/supabase_client.dart';
+import 'core/utils/date_time_helper.dart';
 import 'features/auth/presentation/login_page.dart';
 import 'features/auth/presentation/forgot_password_page.dart';
 import 'features/auth/presentation/reset_password_page.dart';
@@ -48,6 +49,9 @@ Future<void> main() async {
 
   // Initialize locale data for date formatting
   await initializeDateFormatting('ms_MY', null);
+  
+  // Initialize timezone data for Malaysia timezone
+  DateTimeHelper.initialize();
   await initializeDateFormatting('en_US', null);
 
   // Initialize Supabase

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/utils/admin_helper.dart';
 import '../data/models/subscription.dart';
@@ -229,6 +230,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     if (_loading) {
       return Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
           title: const Text('Langganan'),
           backgroundColor: AppColors.primary,
         ),
@@ -238,6 +243,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text('Langganan'),
         backgroundColor: AppColors.primary,
       ),
@@ -426,7 +435,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                         Text(
                           subscription != null
                               ? subscription.isOnTrial
-                                  ? 'Trial bermula ${subscription.trialStartedAt != null ? DateFormat('dd MMM yyyy', 'ms').format(subscription.trialStartedAt!) : subscription.formattedStartDate}'
+                                  ? 'Trial bermula ${subscription.trialStartedAt != null ? DateTimeHelper.formatDate(subscription.trialStartedAt!) : subscription.formattedStartDate}'
                                   : priceInfo != null
                                       ? priceInfo
                                       : 'Bermula ${subscription.formattedStartDate}'
@@ -548,7 +557,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                   Text(
                     subscription.isOnTrial 
                         ? (subscription.trialStartedAt != null 
-                            ? DateFormat('dd MMM yyyy', 'ms').format(subscription.trialStartedAt!)
+                            ? DateTimeHelper.formatDate(subscription.trialStartedAt!)
                             : subscription.formattedStartDate)
                         : subscription.formattedStartDate,
                     style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
@@ -760,27 +769,77 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             fontWeight: FontWeight.bold,
           ),
         ),
-        if (isExtending && remainingDays > 0) ...[
+        if (isExtending && remainingDays > 0 && _currentSubscription != null) ...[
           const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.info.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.info.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: AppColors.info, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Baki tempoh: $remainingDays hari. Tempoh baharu akan ditambah dari tarikh tamat semasa.',
-                    style: const TextStyle(fontSize: 12),
-                  ),
+          Builder(
+            builder: (context) {
+              final currentExpiry = _currentSubscription!.expiresAt;
+              final currentExpiryStr = DateTimeHelper.formatDate(currentExpiry);
+              
+              // Calculate example for 3 months extension
+              final exampleMonths = 3;
+              final exampleDays = exampleMonths * 30;
+              final newExpiryExample = currentExpiry.add(Duration(days: exampleDays));
+              final newExpiryStr = DateTimeHelper.formatDate(newExpiryExample);
+              final totalDaysExample = remainingDays + exampleDays;
+              
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.info.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.info.withOpacity(0.3)),
                 ),
-              ],
-            ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, color: AppColors.info, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Baki tempoh: $remainingDays hari',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Tarikh tamat semasa: $currentExpiryStr',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Tempoh baharu akan ditambah dari tarikh tamat semasa.',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Contoh: Jika extend $exampleMonths bulan ($exampleDays hari),\n'
+                        'Jumlah hari baru = $remainingDays + $exampleDays = $totalDaysExample hari\n'
+                        'Tarikh baru = $newExpiryStr',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.info.withOpacity(0.9),
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ],
         const SizedBox(height: 8),
@@ -1117,6 +1176,52 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                 ),
                 textAlign: TextAlign.center,
               ),
+              // Show calculation for extend
+              if (isExtending && !isCurrentPlan && _currentSubscription != null) ...[
+                const SizedBox(height: 8),
+                Builder(
+                  builder: (context) {
+                    final currentExpiry = _currentSubscription!.expiresAt;
+                    final remainingDays = _currentSubscription!.daysRemaining;
+                    final newDurationDays = plan.durationMonths * 30;
+                    final newExpiry = currentExpiry.add(Duration(days: newDurationDays));
+                    final totalDays = remainingDays + newDurationDays;
+                    
+                    return Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: AppColors.info.withOpacity(0.2),
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Tarikh baru: ${DateTimeHelper.formatDate(newExpiry)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.info,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Jumlah hari: $remainingDays + $newDurationDays = $totalDays hari',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
               const SizedBox(height: 12),
               if (isCurrentPlan)
                 Container(
@@ -1240,7 +1345,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         ),
         subtitle: Text(
           subscription.isOnTrial
-              ? 'Trial • ${subscription.trialStartedAt != null ? DateFormat('dd MMM yyyy', 'ms').format(subscription.trialStartedAt!) : subscription.formattedStartDate} - ${subscription.formattedEndDate}'
+              ? 'Trial • ${subscription.trialStartedAt != null ? DateTimeHelper.formatDate(subscription.trialStartedAt!) : subscription.formattedStartDate} - ${subscription.formattedEndDate}'
               : '${subscription.durationMonths} bulan • ${subscription.formattedStartDate} - ${subscription.formattedEndDate}',
           style: const TextStyle(fontSize: 12),
         ),
