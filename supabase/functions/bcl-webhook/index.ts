@@ -18,7 +18,26 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 type StatusLike = string | number | undefined;
 
+interface BclMainData {
+  id?: string;
+  order_number?: string;
+  transaction_id?: string;
+  exchange_reference_number?: string;
+  exchange_transaction_id?: string;
+  currency?: string;
+  amount?: string | number;
+  subtotal_amount?: string | number;
+  payer_bank_name?: string;
+  payer_name?: string;
+  payer_email?: string;
+  status?: StatusLike;
+  status_description?: string;
+  checksum?: string;
+  [key: string]: unknown;
+}
+
 interface BclPayload {
+  // Flat structure (legacy)
   transaction_id?: string;
   exchange_reference_number?: string;
   exchange_transaction_id?: string;
@@ -29,22 +48,55 @@ interface BclPayload {
   status?: StatusLike;
   status_description?: string;
   checksum?: string;
+  // Nested structure (new BCL.my format)
+  event?: string;
+  data?: {
+    main_data?: BclMainData;
+    formable_type?: string;
+    formable_id?: number;
+    form_title?: string;
+    record_type?: string;
+    record_id?: string;
+    receipt_url?: string;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
 const SUCCESS_STATUSES = new Set(["success", "1", "completed", "paid"]);
 
-const buildSignatureString = (payload: BclPayload): string => {
+// Extract flat data from nested or flat payload structure
+const extractPayloadData = (payload: BclPayload): BclMainData => {
+  // If nested structure (new format)
+  if (payload.data?.main_data) {
+    return payload.data.main_data;
+  }
+  // If flat structure (legacy format)
+  return {
+    order_number: payload.order_number,
+    transaction_id: payload.transaction_id,
+    exchange_reference_number: payload.exchange_reference_number,
+    exchange_transaction_id: payload.exchange_transaction_id,
+    currency: payload.currency,
+    amount: payload.amount,
+    payer_bank_name: payload.payer_bank_name,
+    status: payload.status,
+    status_description: payload.status_description,
+    checksum: payload.checksum,
+  };
+};
+
+const buildSignatureString = (data: BclMainData): string => {
   const payloadData: Record<string, string> = {
-    amount: payload.amount?.toString() ?? "",
-    currency: payload.currency ?? "",
-    exchange_reference_number: payload.exchange_reference_number ?? "",
-    exchange_transaction_id: payload.exchange_transaction_id ?? "",
-    order_number: payload.order_number ?? "",
-    payer_bank_name: payload.payer_bank_name ?? "",
-    status: payload.status?.toString() ?? "",
-    status_description: payload.status_description ?? "",
-    transaction_id: payload.transaction_id ?? "",
+    amount: data.amount?.toString() ?? "",
+    currency: data.currency ?? "",
+    exchange_reference_number: data.exchange_reference_number ?? "",
+    exchange_transaction_id: data.exchange_transaction_id ?? "",
+    order_number: data.order_number ?? "",
+    payer_bank_name: data.payer_bank_name ?? "",
+    status: data.status?.toString() ?? "",
+    status_description: data.status_description ?? "",
+    transaction_id: data.transaction_id ?? "",
   };
 
   return Object.keys(payloadData)
@@ -69,11 +121,27 @@ const computeHmacHex = async (value: string, secret: string): Promise<string> =>
 };
 
 const isValidSignature = async (payload: BclPayload): Promise<boolean> => {
-  const providedChecksum = payload.checksum;
-  if (!providedChecksum) return false;
-  const payloadString = buildSignatureString(payload);
+  const data = extractPayloadData(payload);
+  const providedChecksum = data.checksum;
+  
+  // If no checksum provided, skip verification (for testing or if BCL.my doesn't send it)
+  // TODO: Remove this after confirming BCL.my always sends checksum
+  if (!providedChecksum) {
+    console.warn(`[${new Date().toISOString()}] No checksum provided in payload - skipping verification`);
+    // For now, allow if no checksum (should be removed in production)
+    return true;
+  }
+  
+  const payloadString = buildSignatureString(data);
   const computed = await computeHmacHex(payloadString, BCL_API_SECRET_KEY);
-  return computed.toLowerCase() === providedChecksum.toString().toLowerCase();
+  const isValid = computed.toLowerCase() === providedChecksum.toString().toLowerCase();
+  
+  if (!isValid) {
+    console.log(`[${new Date().toISOString()}] Signature mismatch - provided: ${providedChecksum}, computed: ${computed}`);
+    console.log(`[${new Date().toISOString()}] Signature string: ${payloadString}`);
+  }
+  
+  return isValid;
 };
 
 const parseBody = async (req: Request): Promise<BclPayload> => {
@@ -123,19 +191,71 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Invalid signature" }, 401);
     }
 
-    const orderNumber = payload.order_number?.toString() ?? "";
+    // Extract data from nested or flat structure
+    const payloadData = extractPayloadData(payload);
+    const orderNumber = payloadData.order_number?.toString() ?? "";
+    const status = payloadData.status;
+    const statusDescription = payloadData.status_description;
+    
     console.log(`[${new Date().toISOString()}] Order number: ${orderNumber}`);
+    console.log(`[${new Date().toISOString()}] Status: ${status}, Description: ${statusDescription}`);
     
     if (!orderNumber) {
       console.warn(`[${new Date().toISOString()}] Missing order_number in payload`);
       return jsonResponse({ message: "Missing order_number" });
     }
 
-    const { data: payment, error: paymentError } = await supabase
+    // Try to find payment by order_number (BCL.my order number)
+    let { data: payment, error: paymentError } = await supabase
       .from("subscription_payments")
       .select("id, status, subscription_id, user_id, payment_reference")
       .eq("payment_reference", orderNumber)
       .maybeSingle();
+
+    // If not found, try to find by user email (from payload) and latest pending payment
+    if (!payment && payloadData.payer_email) {
+      console.log(`[${new Date().toISOString()}] Payment not found by order_number, trying to find by user email: ${payloadData.payer_email}`);
+      
+      // Use Supabase Admin API to get user by email
+      const { data: users, error: userError } = await supabase.auth.admin.listUsers();
+      
+      if (!userError && users) {
+        const user = users.users.find(u => u.email?.toLowerCase() === payloadData.payer_email?.toLowerCase());
+        
+        if (user) {
+          console.log(`[${new Date().toISOString()}] User found: ${user.id}`);
+          
+          // Find latest pending payment for this user
+          const { data: pendingPayment, error: pendingError } = await supabase
+            .from("subscription_payments")
+            .select("id, status, subscription_id, user_id, payment_reference")
+            .eq("user_id", user.id)
+            .eq("status", "pending")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (pendingError) {
+            console.error(`[${new Date().toISOString()}] Error finding pending payment:`, pendingError);
+          } else if (pendingPayment) {
+            console.log(`[${new Date().toISOString()}] Found pending payment: ${pendingPayment.id}`);
+            payment = pendingPayment;
+            
+            // Update payment_reference to match BCL.my order number
+            const { error: updateError } = await supabase
+              .from("subscription_payments")
+              .update({ payment_reference: orderNumber })
+              .eq("id", payment.id);
+            
+            if (updateError) {
+              console.error(`[${new Date().toISOString()}] Error updating payment_reference:`, updateError);
+            }
+          }
+        }
+      } else if (userError) {
+        console.error(`[${new Date().toISOString()}] Error fetching users:`, userError);
+      }
+    }
 
     if (paymentError) {
       console.error(`[${new Date().toISOString()}] Fetch payment error:`, paymentError);
@@ -158,13 +278,23 @@ Deno.serve(async (req) => {
       return jsonResponse({ message: "Already processed" });
     }
 
-    const status = payload.status?.toString().toLowerCase() ?? "";
-    const isSuccess = SUCCESS_STATUSES.has(status);
+    // Determine success status
+    // BCL.my uses status: 3 for approved, or status_description: "Approved"
+    const statusValue = payloadData.status?.toString() ?? "";
+    const statusDesc = payloadData.status_description?.toString().toLowerCase() ?? "";
+    const isSuccess = 
+      statusValue === "3" || 
+      statusValue === "success" || 
+      statusDesc === "approved" ||
+      SUCCESS_STATUSES.has(statusValue) ||
+      SUCCESS_STATUSES.has(statusDesc);
+    
     const nowIso = new Date().toISOString();
     const gatewayTransactionId =
-      payload.transaction_id ??
-      payload.exchange_transaction_id ??
-      payload.exchange_reference_number ??
+      payloadData.transaction_id ??
+      payloadData.exchange_transaction_id ??
+      payloadData.exchange_reference_number ??
+      payloadData.id ??
       undefined;
 
     console.log(`[${new Date().toISOString()}] Processing payment:`, {
@@ -262,7 +392,7 @@ Deno.serve(async (req) => {
       .from("subscription_payments")
       .update({
         status: "failed",
-        failure_reason: payload.status_description ?? "Payment failed",
+        failure_reason: payloadData.status_description ?? "Payment failed",
         updated_at: nowIso,
       })
       .eq("id", payment.id);

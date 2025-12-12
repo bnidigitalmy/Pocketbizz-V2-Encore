@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/admin_helper.dart';
 import '../../bookings/presentation/bookings_page_optimized.dart';
 import '../../products/presentation/product_list_page.dart';
 import '../../sales/presentation/sales_page.dart';
@@ -343,6 +344,31 @@ class _HomePageState extends State<HomePage> {
             //   },
             // ),
             const Divider(),
+            // Admin Section (only visible to admins)
+            if (AdminHelper.isAdmin()) ...[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text(
+                  'ADMIN',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.admin_panel_settings, color: Colors.purple),
+                title: const Text('Admin Dashboard'),
+                subtitle: const Text('Subscriptions & Analytics', style: TextStyle(fontSize: 11)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, '/admin/subscriptions');
+                },
+              ),
+              const Divider(),
+            ],
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text('Tetapan'),
