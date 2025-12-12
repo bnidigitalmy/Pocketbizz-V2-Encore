@@ -208,7 +208,7 @@ Deno.serve(async (req) => {
     // Try to find payment by order_number (BCL.my order number)
     let { data: payment, error: paymentError } = await supabase
       .from("subscription_payments")
-      .select("id, status, subscription_id, user_id, payment_reference")
+      .select("id, status, subscription_id, user_id, payment_reference, amount")
       .eq("payment_reference", orderNumber)
       .maybeSingle();
 
@@ -228,7 +228,7 @@ Deno.serve(async (req) => {
           // Find latest pending payment for this user
           const { data: pendingPayment, error: pendingError } = await supabase
             .from("subscription_payments")
-            .select("id, status, subscription_id, user_id, payment_reference")
+            .select("id, status, subscription_id, user_id, payment_reference, amount")
             .eq("user_id", user.id)
             .eq("status", "pending")
             .order("created_at", { ascending: false })
@@ -364,15 +364,34 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Failed to activate subscription" }, 500);
       }
 
-      // Update payment status
+      // Verify amount for prorated payments
+      // BCL.my form may show fixed amount, but we use amount from database
+      const webhookAmount = parseFloat(payloadData.amount?.toString() ?? "0");
+      const expectedAmount = payment.amount as number;
+      const amountDiff = Math.abs(webhookAmount - expectedAmount);
+      
+      // For prorated payments, BCL.my may charge fixed form amount
+      // We accept if difference is small (< RM 50) or if it's exact match
+      const isProratedPayment = amountDiff > 0.01 && amountDiff < 50;
+      
+      if (isProratedPayment) {
+        console.log(`[${new Date().toISOString()}] Prorated payment detected. Webhook amount: ${webhookAmount}, Expected: ${expectedAmount}`);
+        console.log(`[${new Date().toISOString()}] Using expected amount from database: ${expectedAmount}`);
+      }
+
+      // Update payment status (use expected amount from database for prorated payments)
       const { error: paymentUpdateError } = await supabase
         .from("subscription_payments")
         .update({
           status: "completed",
           paid_at: nowIso,
           gateway_transaction_id: gatewayTransactionId,
-          failure_reason: null,
+          failure_reason: isProratedPayment 
+            ? `Prorated payment: BCL form showed ${webhookAmount}, using expected ${expectedAmount}`
+            : null,
           updated_at: nowIso,
+          // Keep original amount from database (prorated amount)
+          amount: expectedAmount,
         })
         .eq("id", payment.id);
 

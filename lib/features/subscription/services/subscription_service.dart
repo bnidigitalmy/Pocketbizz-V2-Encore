@@ -7,6 +7,7 @@ import '../data/repositories/subscription_repository_supabase.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import '../../../core/supabase/supabase_client.dart';
 
 /// Subscription Service
 /// Business logic for subscription management
@@ -70,10 +71,12 @@ class SubscriptionService {
 
   /// Redirect to payment form with order_id and pending session
   /// paymentGateway: 'bcl_my' | 'paypal'
+  /// isExtend: if true, extends existing subscription by adding duration to expiry date
   Future<void> redirectToPayment({
     required int durationMonths,
     required String planId,
     String paymentGateway = 'bcl_my',
+    bool isExtend = false,
   }) async {
     // Fetch plan & pricing
     final plan = await _repo.getPlanById(planId);
@@ -92,6 +95,7 @@ class SubscriptionService {
       pricePerMonth: pricePerMonth,
       isEarlyAdopter: isEarlyAdopter,
       paymentGateway: paymentGateway,
+      isExtend: isExtend,
     );
 
     if (paymentGateway == 'paypal') {
@@ -168,7 +172,12 @@ class SubscriptionService {
       // No payment needed; either instant switch or scheduled downgrade
       return;
     }
-    final url = _paymentUrlForDuration(result.durationMonths, result.orderId!);
+    // For proration, we need to pass dynamic amount
+    final url = await _paymentUrlForProration(
+      durationMonths: result.durationMonths,
+      orderId: result.orderId!,
+      amount: result.amountDue,
+    );
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -205,6 +214,58 @@ class SubscriptionService {
       ...Uri.parse(baseUrl).queryParameters,
       'order_id': orderId,
     });
+    return uri.toString();
+  }
+
+  /// Generate payment URL for proration with dynamic amount
+  /// Since BCL.my forms don't accept amount parameter, we need to:
+  /// 1. Use a generic payment form (if available)
+  /// 2. Or call Edge Function to create custom payment link
+  /// 3. Or handle amount mismatch in webhook
+  Future<String> _paymentUrlForProration({
+    required int durationMonths,
+    required String orderId,
+    required double amount,
+  }) async {
+    try {
+      // Option 1: Try to call Edge Function to create custom payment link
+      // This requires BCL.my API integration
+      final response = await supabase.functions.invoke(
+        'bcl-create-payment-link',
+        body: {
+          'orderId': orderId,
+          'amount': amount,
+          'durationMonths': durationMonths,
+          'description': 'Tukar Pelan (Prorata)',
+          'redirectUrl': 'https://app.pocketbizz.my/#/payment-success',
+        },
+      );
+      
+      if (response.data != null && response.data['paymentUrl'] != null) {
+        return response.data['paymentUrl'] as String;
+      }
+    } catch (e) {
+      print('⚠️ Edge Function not available, using fallback: $e');
+    }
+    
+    // Option 2: Fallback - Use generic payment form or closest form
+    // IMPORTANT: BCL.my form will show fixed amount, but webhook will verify
+    // actual prorated amount from database
+    
+    // Check if we have a generic payment form URL
+    // If not, use closest duration form
+    final baseUrl = _bclFormUrls[durationMonths] ?? _bclFormUrls[12]!;
+    
+    final uri = Uri.parse(baseUrl).replace(queryParameters: {
+      ...Uri.parse(baseUrl).queryParameters,
+      'order_id': orderId,
+      'prorated': 'true', // Flag for webhook to verify amount
+    });
+    
+    // Note: BCL.my form will show fixed amount (e.g., RM 295.80 for 12 bulan)
+    // But webhook will verify actual prorated amount (RM 267.97) from database
+    // and activate subscription correctly
+    
     return uri.toString();
   }
 

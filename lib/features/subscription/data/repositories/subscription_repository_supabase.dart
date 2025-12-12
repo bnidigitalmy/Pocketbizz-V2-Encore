@@ -520,6 +520,7 @@ class SubscriptionRepositorySupabase {
   }
 
   /// Create pending subscription + pending payment record before redirect
+  /// isExtend: if true, extends existing subscription by adding duration to expiry date
   Future<String> createPendingPaymentSession({
     required String planId,
     required String orderId,
@@ -527,6 +528,7 @@ class SubscriptionRepositorySupabase {
     required double pricePerMonth,
     required bool isEarlyAdopter,
     String paymentGateway = 'bcl_my',
+    bool isExtend = false,
   }) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
@@ -537,7 +539,22 @@ class SubscriptionRepositorySupabase {
       final plan = await getPlanById(planId);
       final discountApplied = (pricePerMonth * plan.durationMonths) - totalAmount;
       final now = DateTime.now();
-      final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      
+      // Calculate expiry date
+      DateTime expiresAt;
+      if (isExtend) {
+        // For extend: get current subscription expiry and add new duration
+        final currentSub = await getUserSubscription();
+        if (currentSub == null || currentSub.status != SubscriptionStatus.active) {
+          throw Exception('No active subscription to extend');
+        }
+        // Add new duration to existing expiry date
+        expiresAt = currentSub.expiresAt.add(Duration(days: plan.durationMonths * 30));
+      } else {
+        // For new subscription: start from now
+        expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      }
+      
       final graceUntil = expiresAt.add(const Duration(days: 7));
 
       // Create pending subscription
@@ -654,8 +671,132 @@ class SubscriptionRepositorySupabase {
       final totalAmount = (pendingData['total_amount'] as num).toDouble();
 
       final now = DateTime.now();
-      final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
-      final graceUntil = expiresAt.add(const Duration(days: 7));
+      
+      // Check if this is an extend payment (expires_at is in the future from now)
+      final pendingExpiresAt = DateTime.parse(pendingData['expires_at'] as String);
+      final isExtend = pendingExpiresAt.isAfter(now.add(const Duration(days: 1))); // More than 1 day in future
+      
+      DateTime expiresAt;
+      DateTime graceUntil;
+      
+      if (isExtend) {
+        // For extend: use the calculated expiry date from pending subscription
+        // This was already calculated in createPendingPaymentSession by adding to current expiry
+        expiresAt = pendingExpiresAt;
+        graceUntil = expiresAt.add(const Duration(days: 7));
+        
+        // Find and update existing active subscription instead of creating new one
+        final existingActive = await _supabase
+            .from('subscriptions')
+            .select()
+            .eq('user_id', userId)
+            .eq('status', 'active')
+            .maybeSingle();
+        
+        if (existingActive != null) {
+          // Update existing subscription expiry date
+          final updated = await _supabase
+              .from('subscriptions')
+              .update({
+                'expires_at': expiresAt.toIso8601String(),
+                'grace_until': graceUntil.toIso8601String(),
+                'payment_status': 'completed',
+                'payment_completed_at': now.toIso8601String(),
+                'payment_reference': orderId,
+                'updated_at': now.toIso8601String(),
+              })
+              .eq('id', existingActive['id'] as String)
+              .select('''
+                *,
+                subscription_plans:plan_id (
+                  name,
+                  duration_months
+                )
+              ''')
+              .single();
+          
+          // Delete pending subscription (we're extending existing one)
+          await _supabase
+              .from('subscriptions')
+              .delete()
+              .eq('id', pendingData['id'] as String);
+          
+          // Update payment record to point to existing subscription
+          await _supabase
+              .from('subscription_payments')
+              .update({
+                'subscription_id': existingActive['id'] as String,
+              })
+              .eq('payment_reference', orderId)
+              .eq('status', 'pending');
+          
+          final json = updated as Map<String, dynamic>;
+          final planData = json['subscription_plans'] as Map<String, dynamic>?;
+          if (planData != null) {
+            json['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
+            json['duration_months'] = planData['duration_months'] as int? ?? plan.durationMonths;
+          }
+          
+          // Update payment record to completed
+          var paymentUpdate = await _supabase
+              .from('subscription_payments')
+              .update({
+                'status': 'completed',
+                'paid_at': now.toIso8601String(),
+                'gateway_transaction_id': gatewayTransactionId,
+                'payment_reference': orderId,
+              })
+              .eq('payment_reference', orderId)
+              .eq('status', 'pending')
+              .select('id')
+              .maybeSingle();
+          
+          if (paymentUpdate == null) {
+            throw Exception('No pending payment found to update');
+          }
+          
+          final paymentId = (paymentUpdate as Map<String, dynamic>?)?['id'] as String?;
+          if (paymentId == null) {
+            throw Exception('Failed to get payment ID after update');
+          }
+          
+          final subscription = Subscription.fromJson(json);
+          
+          // Generate receipt
+          _generateAndUploadReceipt(
+            subscription: subscription,
+            plan: plan,
+            paymentReference: orderId,
+            gatewayTransactionId: gatewayTransactionId,
+            amount: totalAmount,
+            paidAt: now,
+            paymentId: paymentId,
+          ).catchError((e) {
+            print('⚠️ Failed to generate receipt (non-critical): $e');
+          });
+          
+          // Send email
+          await _sendEmailNotification(
+            subject: 'Tempoh Langganan Dipanjangkan',
+            html:
+                '<p>Terima kasih, tempoh langganan anda telah dipanjangkan.</p><p>Tempoh baharu: ${plan.durationMonths} bulan</p><p>Jumlah: RM ${totalAmount.toStringAsFixed(2)}</p><p>Tarikh tamat baharu: ${expiresAt.toIso8601String()}</p>',
+            type: 'subscription_extended',
+            meta: {
+              'payment_reference': orderId,
+              'subscription_id': subscription.id,
+              'plan_id': planId,
+              'amount': totalAmount,
+              'new_expires_at': expiresAt.toIso8601String(),
+            },
+          );
+          
+          return subscription;
+        }
+      }
+      
+      // For new subscription: calculate from now
+      expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      graceUntil = expiresAt.add(const Duration(days: 7));
 
       // Expire any existing active/trial for this user (to satisfy unique index)
       await _supabase

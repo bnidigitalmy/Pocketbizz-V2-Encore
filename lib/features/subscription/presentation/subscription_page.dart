@@ -106,7 +106,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     }
   }
 
-  Future<void> _handlePayment(int durationMonths) async {
+  Future<void> _handlePayment(int durationMonths, {bool isExtend = false}) async {
     final plan = _plans.firstWhere(
       (p) => p.durationMonths == durationMonths,
       orElse: () => _plans.first,
@@ -117,17 +117,41 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     try {
       // Get user email for payment form
       final userEmail = supabase.auth.currentUser?.email ?? '';
+      final remainingDays = _currentSubscription?.daysRemaining ?? 0;
 
       // Show dialog with payment instructions
       if (mounted) {
         await showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Penting: Maklumat Pembayaran'),
+            title: Text(isExtend ? 'Tambah Tempoh Langganan' : 'Penting: Maklumat Pembayaran'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (isExtend && remainingDays > 0) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.info.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.info),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: AppColors.info, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Baki tempoh: $remainingDays hari\nTempoh baharu akan ditambah dari tarikh tamat semasa.',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 Text(
                   'Gunakan email yang sama semasa isi borang pembayaran:',
                   style: Theme.of(context).textTheme.bodyMedium,
@@ -163,9 +187,9 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  _redirectToPayment(durationMonths, plan.id);
+                  _redirectToPayment(durationMonths, plan.id, isExtend: isExtend);
                 },
-                child: const Text('Teruskan ke Pembayaran'),
+                child: Text(isExtend ? 'Teruskan Tambah Tempoh' : 'Teruskan ke Pembayaran'),
               ),
             ],
           ),
@@ -184,11 +208,12 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     }
   }
 
-  Future<void> _redirectToPayment(int durationMonths, String planId) async {
+  Future<void> _redirectToPayment(int durationMonths, String planId, {bool isExtend = false}) async {
     try {
       await _subscriptionService.redirectToPayment(
         durationMonths: durationMonths,
         planId: planId,
+        isExtend: isExtend,
       );
     } catch (e) {
       if (mounted) {
@@ -238,10 +263,12 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
               const SizedBox(height: 24),
 
-              // Package Selection - Show if no subscription, expired, or on trial
+              // Package Selection - Show if no subscription, expired, on trial, OR active (for extend)
               if (_currentSubscription == null || 
                   _currentSubscription!.status == SubscriptionStatus.expired ||
-                  _currentSubscription!.isOnTrial)
+                  _currentSubscription!.isOnTrial ||
+                  _currentSubscription!.status == SubscriptionStatus.active ||
+                  _currentSubscription!.status == SubscriptionStatus.grace)
                 _buildPackageSelection(),
 
               const SizedBox(height: 24),
@@ -442,18 +469,19 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                         foregroundColor: AppColors.success,
                       ),
                     ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _processingPayment ? null : _showChangePlanDialog,
-                    icon: _processingPayment
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.swap_horiz),
-                    label: const Text('Tukar Pelan'),
-                  ),
+                  // Proration/Change Plan button disabled - using extend instead
+                  // const SizedBox(width: 8),
+                  // OutlinedButton.icon(
+                  //   onPressed: _processingPayment ? null : _showChangePlanDialog,
+                  //   icon: _processingPayment
+                  //       ? const SizedBox(
+                  //           width: 14,
+                  //           height: 14,
+                  //           child: CircularProgressIndicator(strokeWidth: 2),
+                  //         )
+                  //       : const Icon(Icons.swap_horiz),
+                  //   label: const Text('Tukar Pelan'),
+                  // ),
                 ],
               ),
 
@@ -717,16 +745,44 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   }
 
   Widget _buildPackageSelection() {
+    final isExtending = _currentSubscription != null && 
+                        (_currentSubscription!.status == SubscriptionStatus.active ||
+                         _currentSubscription!.status == SubscriptionStatus.grace);
+    final remainingDays = _currentSubscription?.daysRemaining ?? 0;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Pilih Pakej Langganan',
-          style: TextStyle(
+        Text(
+          isExtending ? 'Tambah Tempoh Langganan' : 'Pilih Pakej Langganan',
+          style: const TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
         ),
+        if (isExtending && remainingDays > 0) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.info.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.info.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: AppColors.info, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Baki tempoh: $remainingDays hari. Tempoh baharu akan ditambah dari tarikh tamat semasa.',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.all(12),
@@ -863,9 +919,15 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     final canUpgrade = _currentSubscription == null || 
                        _currentSubscription!.isOnTrial || 
                        _currentSubscription!.status == SubscriptionStatus.expired;
+    final isExtending = _currentSubscription != null && 
+                        (_currentSubscription!.status == SubscriptionStatus.active ||
+                         _currentSubscription!.status == SubscriptionStatus.grace);
+    final canExtend = isExtending && !isCurrentPlan;
     final isPopular = plan.durationMonths == 6;
+    
+    // Enhanced styling for current plan
     final cardColor = isCurrentPlan
-        ? AppColors.primary.withOpacity(0.1)
+        ? null // Use gradient instead
         : isPopular
             ? const Color(0xFFE6F4EA) // soft green for contrast
             : null;
@@ -875,17 +937,54 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ? AppColors.primary.withOpacity(0.6)
             : Colors.grey.withOpacity(0.2);
 
-    return Card(
-      elevation: isCurrentPlan ? 6 : (isPopular ? 5 : 2),
-      color: cardColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: borderColor, width: isPopular ? 1.4 : 1),
-      ),
+    // Soft brown/light peach color scheme for current plan
+    final lightPeach = const Color(0xFFFFE5D9); // Soft light peach
+    final softBrown = const Color(0xFFE8D5C4); // Soft brown
+    final borderBrown = const Color(0xFFC9A882); // Light brown for border
+    final textBrown = const Color(0xFF8B6F47); // Dark brown for text
+    
+    return Container(
+      decoration: isCurrentPlan
+          ? BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  lightPeach, // Soft light peach
+                  softBrown.withOpacity(0.8), // Soft brown
+                  Colors.white,
+                ],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: borderBrown, // Soft brown border
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: borderBrown.withOpacity(0.2), // Subtle shadow
+                  blurRadius: 8,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            )
+          : null,
+      child: Card(
+        elevation: isCurrentPlan ? 0 : (isPopular ? 5 : 2), // No elevation if using container decoration
+        color: cardColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: borderColor,
+            width: isCurrentPlan ? 0 : (isPopular ? 1.4 : 1), // No border if using container decoration
+          ),
+        ),
       child: InkWell(
-        onTap: _processingPayment || !canUpgrade || isCurrentPlan 
+        onTap: _processingPayment || (!canUpgrade && !canExtend) || isCurrentPlan 
             ? null 
-            : () => _handlePayment(plan.durationMonths),
+            : () => _handlePayment(plan.durationMonths, isExtend: isExtending),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -896,7 +995,42 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  if (isPopular)
+                  if (isCurrentPlan)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: borderBrown, // Soft brown
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: borderBrown.withOpacity(0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.check_circle,
+                            color: Colors.white,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            'Aktif',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (isPopular)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                       decoration: BoxDecoration(
@@ -922,7 +1056,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                     )
                   else
                     const SizedBox(width: 1),
-                  if (savingsText != null)
+                  if (savingsText != null && !isCurrentPlan)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -943,29 +1077,32 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               if (savingsText != null || isPopular) const SizedBox(height: 12),
               Text(
                 '${plan.durationMonths} Bulan',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
+                  color: isCurrentPlan ? textBrown : AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 // Always show whole number for professional display (prices are rounded)
                 'RM${price.round()}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
+                  color: isCurrentPlan ? textBrown : AppColors.primary,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 // Show monthly price rounded to nearest integer
                 'RM${pricePerMonth.round()}/bulan',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: AppColors.textSecondary,
+                  color: isCurrentPlan
+                      ? textBrown.withOpacity(0.8)
+                      : AppColors.textSecondary,
+                  fontWeight: isCurrentPlan ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
               const SizedBox(height: 6),
@@ -983,25 +1120,46 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               const SizedBox(height: 12),
               if (isCurrentPlan)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(20),
+                    color: borderBrown, // Soft brown
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: borderBrown.withOpacity(0.3),
+                        blurRadius: 6,
+                        spreadRadius: 0,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                  child: const Text(
-                    'Pakej Semasa',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.verified,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Pakej Semasa',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
                   ),
                 )
-              else if (canUpgrade)
+              else if (canUpgrade || canExtend)
                 ElevatedButton(
                   onPressed: _processingPayment 
                       ? null 
-                      : () => _handlePayment(plan.durationMonths),
+                      : () => _handlePayment(plan.durationMonths, isExtend: isExtending),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
@@ -1019,9 +1177,9 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
-                      : const Text(
-                          'Upgrade',
-                          style: TextStyle(
+                      : Text(
+                          isExtending ? 'Tambah Tempoh' : 'Upgrade',
+                          style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
@@ -1030,6 +1188,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
