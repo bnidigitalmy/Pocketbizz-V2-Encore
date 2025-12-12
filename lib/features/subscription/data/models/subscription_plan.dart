@@ -48,15 +48,21 @@ class SubscriptionPlan {
   }
 
   /// Calculate price for early adopter (RM 29/month instead of RM 39/month)
+  /// Returns rounded price to whole number for professional display
   double getPriceForEarlyAdopter() {
     final basePrice = 29.0; // Early adopter price per month
     final total = basePrice * durationMonths;
     
     // Apply same discount percentage
+    double discountedPrice;
     if (discountPercentage > 0) {
-      return total * (1 - discountPercentage / 100);
+      discountedPrice = total * (1 - discountPercentage / 100);
+    } else {
+      discountedPrice = total;
     }
-    return total;
+    
+    // Round to nearest whole number for professional display
+    return discountedPrice.roundToDouble();
   }
 
   /// Get savings text for display

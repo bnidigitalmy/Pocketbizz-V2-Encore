@@ -282,13 +282,14 @@ CREATE TRIGGER update_subscription_payments_updated_at
 -- INITIAL DATA: Insert subscription plans
 -- Standard pricing: RM 39/month
 -- Discounts: 6 months (8% off), 12 months (15% off)
+-- Prices rounded to whole numbers for professional display
 -- Early adopter pricing: RM 29/month (handled in application logic)
 INSERT INTO subscription_plans (name, duration_months, price_per_month, total_price, discount_percentage, display_order)
 VALUES
     ('1 Bulan', 1, 39.00, 39.00, 0.00, 1),
     ('3 Bulan', 3, 39.00, 117.00, 0.00, 2),
-    ('6 Bulan', 6, 39.00, 215.28, 8.00, 3),  -- 8% discount: (39 x 6) - 8% = 234 - 18.72 = 215.28
-    ('12 Bulan', 12, 39.00, 397.80, 15.00, 4)  -- 15% discount: (39 x 12) - 15% = 468 - 70.20 = 397.80
+    ('6 Bulan', 6, 39.00, 215.00, 8.00, 3),  -- 8% discount: (39 x 6) - 8% = 234 - 18.72 = 215.28 → rounded to 215
+    ('12 Bulan', 12, 39.00, 398.00, 15.00, 4)  -- 15% discount: (39 x 12) - 15% = 468 - 70.20 = 397.80 → rounded to 398
 ON CONFLICT (duration_months) DO UPDATE
 SET 
     price_per_month = EXCLUDED.price_per_month,
@@ -296,9 +297,9 @@ SET
     discount_percentage = EXCLUDED.discount_percentage,
     updated_at = NOW();
 
--- Note: Early adopter pricing (RM 29/month) will be calculated in application with same discounts:
+-- Note: Early adopter pricing (RM 29/month) will be calculated in application with same discounts and rounded:
 -- - 1 Bulan: RM 29 (no discount)
 -- - 3 Bulan: RM 87 (RM 29 x 3, no discount)
--- - 6 Bulan: RM 160.08 (RM 29 x 6 - 8% = 174 - 13.92 = 160.08)
--- - 12 Bulan: RM 295.80 (RM 29 x 12 - 15% = 348 - 52.20 = 295.80)
+-- - 6 Bulan: RM 160 (RM 29 x 6 - 8% = 174 - 13.92 = 160.08 → rounded to 160)
+-- - 12 Bulan: RM 296 (RM 29 x 12 - 15% = 348 - 52.20 = 295.80 → rounded to 296)
 

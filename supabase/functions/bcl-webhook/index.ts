@@ -1,3 +1,148 @@
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+// Minimal Supabase client for server-side calls
+import { createClient } from "npm:@supabase/supabase-js@2.46.1";
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+interface BclPayload {
+  event?: string;
+  data?: {
+    record_id?: string; // order_number
+    main_data?: {
+      id?: string; // transaction id
+      order_number?: string;
+      status?: number | string;
+      status_description?: string;
+      amount?: string;
+      currency?: string;
+    };
+    receipt_url?: string;
+  };
+}
+
+serve(async (req) => {
+  if (req.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  try {
+    const payload = (await req.json()) as BclPayload;
+    const event = payload.event;
+    const main = payload.data?.main_data ?? {};
+    const orderNumber =
+      main.order_number || payload.data?.record_id || main.id || "";
+
+    if (!orderNumber) {
+      return new Response(JSON.stringify({ error: "Missing order_number" }), {
+        status: 400,
+      });
+    }
+
+    const status = String(main.status ?? "").toLowerCase();
+    const isSuccess =
+      event === "payment-success" ||
+      status === "3" ||
+      status === "approved" ||
+      status === "completed";
+
+    // Find pending subscription by payment_reference
+    const { data: sub, error: subErr } = await supabase
+      .from("subscriptions")
+      .select("id, user_id, plan_id, status")
+      .eq("payment_reference", orderNumber)
+      .eq("status", "pending_payment")
+      .maybeSingle();
+
+    if (subErr) {
+      console.error("Failed to fetch subscription", subErr);
+      return new Response(JSON.stringify({ error: "Failed to fetch subscription" }), {
+        status: 500,
+      });
+    }
+
+    if (!sub) {
+      return new Response(JSON.stringify({ message: "No pending subscription found" }), {
+        status: 200,
+      });
+    }
+
+    const gatewayTransactionId = main.id ?? null;
+    const paidAt = new Date().toISOString();
+
+    if (isSuccess) {
+      // Mark payment completed
+      const { error: payErr } = await supabase
+        .from("subscription_payments")
+        .update({
+          status: "completed",
+          paid_at: paidAt,
+          gateway_transaction_id: gatewayTransactionId,
+          updated_at: paidAt,
+        })
+        .eq("payment_reference", orderNumber)
+        .eq("subscription_id", sub.id);
+
+      if (payErr) {
+        console.error("Failed to update payment", payErr);
+        return new Response(JSON.stringify({ error: "Failed to update payment" }), {
+          status: 500,
+        });
+      }
+
+      // Activate subscription
+      const { error: subUpdateErr } = await supabase
+        .from("subscriptions")
+        .update({
+          status: "active",
+          started_at: paidAt,
+          expires_at: null, // keep original expires_at untouched if already set by creation
+          payment_status: "completed",
+          payment_completed_at: paidAt,
+          updated_at: paidAt,
+        })
+        .eq("id", sub.id);
+
+      if (subUpdateErr) {
+        console.error("Failed to activate subscription", subUpdateErr);
+        return new Response(JSON.stringify({ error: "Failed to activate subscription" }), {
+          status: 500,
+        });
+      }
+
+      return new Response(JSON.stringify({ message: "Payment success processed" }), {
+        status: 200,
+      });
+    }
+
+    // Failed case
+    const { error: payFailErr } = await supabase
+      .from("subscription_payments")
+      .update({
+        status: "failed",
+        gateway_transaction_id: gatewayTransactionId,
+        updated_at: paidAt,
+      })
+      .eq("payment_reference", orderNumber)
+      .eq("subscription_id", sub.id);
+
+    if (payFailErr) {
+      console.error("Failed to mark payment failed", payFailErr);
+      return new Response(JSON.stringify({ error: "Failed to mark payment failed" }), {
+        status: 500,
+      });
+    }
+
+    return new Response(JSON.stringify({ message: "Payment failed processed" }), {
+      status: 200,
+    });
+  } catch (e) {
+    console.error("Webhook error", e);
+    return new Response(JSON.stringify({ error: "Internal error" }), { status: 500 });
+  }
+});
 // Supabase Edge Function: BCL webhook handler (uses only Supabase)
 // Verifies HMAC-SHA256 checksum and activates subscriptions/payments.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.0";

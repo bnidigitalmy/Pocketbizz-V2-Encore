@@ -489,6 +489,67 @@ class PDFGenerator {
     return pdf.save();
   }
 
+  /// Generate Subscription Payment Receipt PDF
+  static Future<Uint8List> generateSubscriptionReceipt({
+    required String paymentReference,
+    required String planName,
+    required int durationMonths,
+    required double amount,
+    required DateTime paidAt,
+    required String paymentGateway,
+    String? gatewayTransactionId,
+    String? businessName,
+    String? businessAddress,
+    String? businessPhone,
+    String? userEmail,
+    String? userName,
+    bool isEarlyAdopter = false,
+  }) async {
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(40),
+        build: (pw.Context context) {
+          return [
+            _buildHeader(
+              title: 'RESIT PEMBAYARAN LANGGANAN',
+              documentNumber: paymentReference,
+              date: paidAt,
+              businessName: businessName ?? 'PocketBizz',
+              businessAddress: businessAddress,
+              businessPhone: businessPhone,
+            ),
+            pw.SizedBox(height: 20),
+            _buildSubscriptionInfo(
+              planName: planName,
+              durationMonths: durationMonths,
+              isEarlyAdopter: isEarlyAdopter,
+            ),
+            pw.SizedBox(height: 20),
+            if (userName != null || userEmail != null)
+              _buildUserInfo(
+                userName: userName,
+                userEmail: userEmail,
+              ),
+            if (userName != null || userEmail != null) pw.SizedBox(height: 20),
+            _buildSubscriptionPaymentDetails(
+              paymentGateway: paymentGateway,
+              paymentReference: paymentReference,
+              totalAmount: amount,
+              gatewayTransactionId: gatewayTransactionId,
+            ),
+            pw.SizedBox(height: 30),
+            _buildFooter(),
+          ];
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
   /// Print PDF
   static Future<void> printPDF(Uint8List pdfBytes, {String? name}) async {
     await Printing.layoutPdf(
@@ -701,10 +762,85 @@ class PDFGenerator {
     );
   }
 
+  static pw.Widget _buildSubscriptionInfo({
+    required String planName,
+    required int durationMonths,
+    required bool isEarlyAdopter,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(15),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey400),
+        borderRadius: pw.BorderRadius.circular(5),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text('Maklumat Langganan', style: const pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          _infoRow('Pakej', planName),
+          pw.SizedBox(height: 5),
+          _infoRow('Tempoh', '$durationMonths bulan'),
+          if (isEarlyAdopter) ...[
+            pw.SizedBox(height: 5),
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.green100,
+                borderRadius: pw.BorderRadius.circular(3),
+              ),
+              child: pw.Text(
+                'Early Adopter - Harga Istimewa',
+                style: pw.TextStyle(fontSize: 9, color: PdfColors.green800),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildUserInfo({
+    String? userName,
+    String? userEmail,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(15),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey400),
+        borderRadius: pw.BorderRadius.circular(5),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text('Maklumat Pengguna', style: const pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          if (userName != null) _infoRow('Nama', userName),
+          if (userName != null) pw.SizedBox(height: 5),
+          if (userEmail != null) _infoRow('Email', userEmail),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _infoRow(String label, String value) {
+    return pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text('$label:', style: const pw.TextStyle(fontSize: 11)),
+        pw.Text(
+          value,
+          style: const pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+        ),
+      ],
+    );
+  }
+
   static pw.Widget _buildPaymentDetails({
     required String paymentMethod,
     String? paymentReference,
     required double totalAmount,
+    String? gatewayTransactionId,
   }) {
     final methodLabels = {
       'bill_to_bill': 'Bill to Bill',
@@ -883,6 +1019,53 @@ class PDFGenerator {
           ),
         ),
       ],
+    );
+  }
+
+  static pw.Widget _buildSubscriptionPaymentDetails({
+    required String paymentGateway,
+    required String paymentReference,
+    required double totalAmount,
+    String? gatewayTransactionId,
+  }) {
+    final gatewayLabels = {
+      'bcl_my': 'BCL.my',
+      'stripe': 'Stripe',
+      'paypal': 'PayPal',
+    };
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(15),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey400),
+        borderRadius: pw.BorderRadius.circular(5),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text('Maklumat Pembayaran', style: const pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          _infoRow('Kaedah Pembayaran', gatewayLabels[paymentGateway.toLowerCase()] ?? paymentGateway),
+          pw.SizedBox(height: 5),
+          _infoRow('Rujukan Pembayaran', paymentReference),
+          if (gatewayTransactionId != null && gatewayTransactionId.isNotEmpty) ...[
+            pw.SizedBox(height: 5),
+            _infoRow('ID Transaksi Gateway', gatewayTransactionId),
+          ],
+          pw.Divider(),
+          pw.SizedBox(height: 10),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('Jumlah Dibayar:', style: const pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                'RM ${totalAmount.toStringAsFixed(2)}',
+                style: const pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.green700),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

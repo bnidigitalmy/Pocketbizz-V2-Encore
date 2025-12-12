@@ -1,14 +1,23 @@
 import '../data/repositories/subscription_repository_supabase.dart';
 import '../data/models/subscription.dart';
 import '../data/models/subscription_plan.dart';
+import '../data/models/subscription_payment.dart';
 import '../data/models/plan_limits.dart';
+import '../data/repositories/subscription_repository_supabase.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 /// Subscription Service
 /// Business logic for subscription management
 class SubscriptionService {
   final SubscriptionRepositorySupabase _repo = SubscriptionRepositorySupabase();
+  static const _bclFormUrls = {
+    1: 'https://bnidigital.bcl.my/form/1-bulan',
+    3: 'https://bnidigital.bcl.my/form/3-bulan',
+    6: 'https://bnidigital.bcl.my/form/6-bulan',
+    12: 'https://bnidigital.bcl.my/form/12-bulan',
+  };
 
   /// Initialize trial for new user
   /// Called automatically on user registration
@@ -59,24 +68,13 @@ class SubscriptionService {
     return await _repo.getPlanLimits();
   }
 
-  /// Redirect to bcl.my payment form with order_id and pending session
+  /// Redirect to payment form with order_id and pending session
+  /// paymentGateway: 'bcl_my' | 'paypal'
   Future<void> redirectToPayment({
     required int durationMonths,
     required String planId,
+    String paymentGateway = 'bcl_my',
   }) async {
-    // BCL.my form URLs (from provided React code)
-    const bclFormUrls = {
-      1: 'https://bnidigital.bcl.my/form/1-bulan',
-      3: 'https://bnidigital.bcl.my/form/3-bulan',
-      6: 'https://bnidigital.bcl.my/form/6-bulan',
-      12: 'https://bnidigital.bcl.my/form/12-bulan',
-    };
-
-    final url = bclFormUrls[durationMonths];
-    if (url == null) {
-      throw Exception('Invalid duration: $durationMonths');
-    }
-
     // Fetch plan & pricing
     final plan = await _repo.getPlanById(planId);
     final isEarlyAdopter = await _repo.isEarlyAdopter();
@@ -93,15 +91,23 @@ class SubscriptionService {
       totalAmount: totalAmount,
       pricePerMonth: pricePerMonth,
       isEarlyAdopter: isEarlyAdopter,
+      paymentGateway: paymentGateway,
     );
 
-    // Append order_id to URL for callback identification
+    if (paymentGateway == 'paypal') {
+      // TODO: hook to PayPal Edge Function when ready
+      throw Exception('PayPal integration pending Edge Function implementation');
+    }
+
+    // Default: BCL.my
+    final url = _bclFormUrls[durationMonths];
+    if (url == null) {
+      throw Exception('Invalid duration: $durationMonths');
+    }
     final uri = Uri.parse(url).replace(queryParameters: {
       ...Uri.parse(url).queryParameters,
       'order_id': orderId,
     });
-
-    // Open URL in browser
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
@@ -150,9 +156,80 @@ class SubscriptionService {
     );
   }
 
+  /// Get proration quote for changing plan
+  Future<ProrationQuote> getProrationQuote(String targetPlanId) {
+    return _repo.getProrationQuote(targetPlanId: targetPlanId);
+  }
+
+  /// Change plan with proration. If amountDue > 0, opens payment URL.
+  Future<void> changePlanProrated(String targetPlanId) async {
+    final result = await _repo.changePlanProrated(targetPlanId: targetPlanId);
+    if (result.amountDue <= 0 || result.orderId == null) {
+      // No payment needed; either instant switch or scheduled downgrade
+      return;
+    }
+    final url = _paymentUrlForDuration(result.durationMonths, result.orderId!);
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw Exception('Could not launch payment URL');
+    }
+  }
+
+  /// Retry a failed/pending payment and redirect to payment page with new order id
+  Future<void> retryPayment({
+    required SubscriptionPayment payment,
+    String? paymentGateway,
+  }) async {
+    final result = await _repo.retryPayment(
+      payment: payment,
+      paymentGateway: paymentGateway,
+    );
+
+    final url = _paymentUrlForDuration(result.durationMonths, result.orderId);
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw Exception('Could not launch payment URL');
+    }
+  }
+
+  String _paymentUrlForDuration(int durationMonths, String orderId) {
+    final baseUrl = _bclFormUrls[durationMonths];
+    if (baseUrl == null) {
+      throw Exception('Invalid duration: $durationMonths');
+    }
+    final uri = Uri.parse(baseUrl).replace(queryParameters: {
+      ...Uri.parse(baseUrl).queryParameters,
+      'order_id': orderId,
+    });
+    return uri.toString();
+  }
+
+  /// Subscribe to payment status changes for current user
+  RealtimeChannel? subscribePaymentNotifications(void Function(SubscriptionPayment) onChange) {
+    return _repo.subscribePaymentStatus(onChange);
+  }
+
+  Future<void> sendPaymentFailedEmail(SubscriptionPayment payment, {String? reason}) {
+    return _repo.sendPaymentFailedEmail(payment: payment, reason: reason);
+  }
+
   /// Get subscription history
   Future<List<Subscription>> getSubscriptionHistory() async {
     return await _repo.getUserSubscriptionHistory();
+  }
+
+  /// Get payment history
+  Future<List<SubscriptionPayment>> getPaymentHistory() async {
+    return await _repo.getPaymentHistory();
+  }
+
+  /// Get payments for specific subscription
+  Future<List<SubscriptionPayment>> getSubscriptionPayments(String subscriptionId) async {
+    return await _repo.getSubscriptionPayments(subscriptionId);
   }
 
   /// Cancel subscription (set auto_renew to false)

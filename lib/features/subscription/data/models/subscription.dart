@@ -23,6 +23,7 @@ class Subscription {
   final DateTime? trialEndsAt;
   final DateTime? startedAt;
   final DateTime expiresAt;
+  final DateTime? graceUntil;
   final DateTime? cancelledAt;
   
   // Payment
@@ -53,6 +54,7 @@ class Subscription {
     this.trialEndsAt,
     this.startedAt,
     required this.expiresAt,
+    this.graceUntil,
     this.cancelledAt,
     this.paymentGateway,
     this.paymentReference,
@@ -86,6 +88,9 @@ class Subscription {
           ? DateTime.parse(json['started_at'] as String)
           : null,
       expiresAt: DateTime.parse(json['expires_at'] as String),
+      graceUntil: json['grace_until'] != null
+          ? DateTime.parse(json['grace_until'] as String)
+          : null,
       cancelledAt: json['cancelled_at'] != null
           ? DateTime.parse(json['cancelled_at'] as String)
           : null,
@@ -120,6 +125,7 @@ class Subscription {
       'trial_ends_at': trialEndsAt?.toIso8601String(),
       'started_at': startedAt?.toIso8601String(),
       'expires_at': expiresAt.toIso8601String(),
+      'grace_until': graceUntil?.toIso8601String(),
       'cancelled_at': cancelledAt?.toIso8601String(),
       'payment_gateway': paymentGateway,
       'payment_reference': paymentReference,
@@ -138,6 +144,8 @@ class Subscription {
         return SubscriptionStatus.trial;
       case 'active':
         return SubscriptionStatus.active;
+      case 'grace':
+        return SubscriptionStatus.grace;
       case 'expired':
         return SubscriptionStatus.expired;
       case 'cancelled':
@@ -165,7 +173,7 @@ class Subscription {
   }
 
   /// Check if subscription is active (trial or paid)
-  bool get isActive => status == SubscriptionStatus.trial || status == SubscriptionStatus.active;
+  bool get isActive => status == SubscriptionStatus.trial || status == SubscriptionStatus.active || status == SubscriptionStatus.grace;
 
   /// Check if on trial
   bool get isOnTrial => status == SubscriptionStatus.trial;
@@ -173,7 +181,11 @@ class Subscription {
   /// Get days remaining
   int get daysRemaining {
     final now = DateTime.now();
-    final endDate = isOnTrial ? trialEndsAt : expiresAt;
+    final endDate = isOnTrial
+        ? trialEndsAt
+        : status == SubscriptionStatus.grace
+            ? graceUntil
+            : expiresAt;
     if (endDate == null) return 0;
     final diff = endDate.difference(now).inDays;
     return diff > 0 ? diff : 0;
@@ -181,6 +193,8 @@ class Subscription {
 
   /// Check if expiring soon (7 days or less)
   bool get isExpiringSoon => daysRemaining <= 7 && daysRemaining > 0;
+
+  bool get isInGrace => status == SubscriptionStatus.grace;
 
   /// Get formatted start date
   String get formattedStartDate {
@@ -199,6 +213,7 @@ class Subscription {
 enum SubscriptionStatus {
   trial,
   active,
+  grace,
   expired,
   cancelled,
   pendingPayment,

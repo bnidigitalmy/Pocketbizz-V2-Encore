@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../data/models/subscription.dart';
 import '../data/models/subscription_plan.dart';
+import '../data/models/subscription_payment.dart';
 import '../data/models/plan_limits.dart';
 import '../services/subscription_service.dart';
 import '../data/repositories/subscription_repository_supabase.dart';
@@ -26,6 +29,9 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   List<SubscriptionPlan> _plans = [];
   PlanLimits? _planLimits;
   List<Subscription> _subscriptionHistory = [];
+  List<SubscriptionPayment> _paymentHistory = [];
+  String? _retryingPaymentId;
+  RealtimeChannel? _paymentChannel;
   bool _isEarlyAdopter = false;
   bool _loading = true;
   bool _processingPayment = false;
@@ -34,6 +40,12 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _paymentChannel?.unsubscribe();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -45,6 +57,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         _subscriptionService.getPlanLimits(),
         _subscriptionService.getSubscriptionHistory(),
         _subscriptionService.isEarlyAdopter(),
+        _subscriptionService.getPaymentHistory(),
       ]);
 
       if (mounted) {
@@ -54,7 +67,32 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           _planLimits = results[2] as PlanLimits;
           _subscriptionHistory = results[3] as List<Subscription>;
           _isEarlyAdopter = results[4] as bool;
+          _paymentHistory = results[5] as List<SubscriptionPayment>;
           _loading = false;
+        });
+
+        // Subscribe to payment status changes for in-app notifications
+        _paymentChannel ??= _subscriptionService.subscribePaymentNotifications((payment) {
+          if (!mounted) return;
+          String message;
+          Color bg = AppColors.primary;
+          if (payment.isCompleted) {
+            message = 'Pembayaran berjaya: ${payment.formattedAmount}';
+            bg = AppColors.success;
+          } else if (payment.isFailed) {
+            message = 'Pembayaran gagal. Sila cuba semula.';
+            bg = AppColors.error;
+            _subscriptionService.sendPaymentFailedEmail(payment).ignore();
+          } else {
+            message = 'Status pembayaran dikemas kini: ${payment.status}';
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              backgroundColor: bg,
+            ),
+          );
+          _loadData();
         });
       }
     } catch (e) {
@@ -185,8 +223,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Expiring Soon Alert
-              if (_currentSubscription != null && _currentSubscription!.isExpiringSoon)
+              // Grace Period Alert
+              if (_currentSubscription != null && _currentSubscription!.isInGrace)
+                _buildGraceAlert(),
+              // Expiring Soon Alert (active/trial)
+              if (_currentSubscription != null && !_currentSubscription!.isInGrace && _currentSubscription!.isExpiringSoon)
                 _buildExpiringSoonAlert(),
 
               const SizedBox(height: 16),
@@ -206,6 +247,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
               // Subscription History
               if (_subscriptionHistory.isNotEmpty) _buildSubscriptionHistory(),
+
+              const SizedBox(height: 24),
+
+              // Payment History
+              _buildPaymentHistory(),
 
               const SizedBox(height: 24),
 
@@ -258,6 +304,45 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                     fontSize: 14,
                     color: AppColors.textSecondary,
                   ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGraceAlert() {
+    final days = _currentSubscription!.daysRemaining;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.access_time, color: Colors.orange),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Tempoh Tangguh (Grace Period)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  days > 0
+                      ? 'Akaun dalam tempoh tangguh. Lengkapkan pembayaran dalam $days hari untuk elak tamat.'
+                      : 'Akaun dalam tempoh tangguh. Sila lengkapkan pembayaran segera.',
+                  style: const TextStyle(fontSize: 12, height: 1.3),
                 ),
               ],
             ),
@@ -332,6 +417,24 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ),
 
             const SizedBox(height: 20),
+
+            if (subscription != null && !subscription.isOnTrial)
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: _processingPayment ? null : _showChangePlanDialog,
+                  icon: _processingPayment
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.swap_horiz),
+                  label: const Text('Tukar Pelan'),
+                ),
+              ),
+
+            const SizedBox(height: 8),
 
             // Progress Bar
             if (subscription != null) ...[
@@ -432,6 +535,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         color = AppColors.success;
         text = 'Aktif';
         break;
+      case SubscriptionStatus.grace:
+        color = Colors.orange;
+        text = 'Grace';
+        break;
       case SubscriptionStatus.expired:
         color = Colors.grey;
         text = 'Tidak Aktif';
@@ -465,6 +572,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   }
 
   Widget _buildPlanLimits() {
+    // Check if any limit is approaching (>= 80% usage)
+    final isApproachingLimit = _planLimits!.products.usagePercentage >= 80 ||
+        _planLimits!.stockItems.usagePercentage >= 80 ||
+        _planLimits!.transactions.usagePercentage >= 80;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -485,6 +597,33 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             Expanded(child: _buildLimitItem('Transaksi', _planLimits!.transactions)),
           ],
         ),
+        // Show warning if approaching limits
+        if (isApproachingLimit && !_planLimits!.products.isUnlimited) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.warning.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Penggunaan anda hampir mencapai had. Pertimbangkan untuk upgrade pakej untuk teruskan menggunakan semua ciri.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -777,10 +916,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                // Show exact price with 2 decimals if needed, otherwise whole number
-                price % 1 == 0 
-                    ? 'RM${price.toInt()}'
-                    : 'RM${price.toStringAsFixed(2)}',
+                // Always show whole number for professional display (prices are rounded)
+                'RM${price.round()}',
                 style: const TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
@@ -884,6 +1021,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
+        isThreeLine: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -920,9 +1059,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                   ? 'Percuma'
                   : subscription.totalAmount == 0
                       ? 'Percuma'
-                      : subscription.totalAmount % 1 == 0
-                          ? 'RM ${subscription.totalAmount.toInt()}'
-                          : 'RM ${subscription.totalAmount.toStringAsFixed(2)}',
+                      : 'RM ${subscription.totalAmount.round()}',
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
@@ -934,6 +1071,406 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildPaymentHistory() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Sejarah Pembayaran',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_paymentHistory.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.payment, size: 48, color: Colors.grey[400]),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Tiada sejarah pembayaran',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          ..._paymentHistory.map((payment) => _buildPaymentHistoryItem(payment)),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  Widget _buildPaymentHistoryItem(SubscriptionPayment payment) {
+    Color statusColor;
+    IconData statusIcon;
+    String statusText;
+
+    switch (payment.status) {
+      case 'completed':
+        statusColor = AppColors.success;
+        statusIcon = Icons.check_circle;
+        statusText = 'Berjaya';
+        break;
+      case 'pending':
+        statusColor = AppColors.warning;
+        statusIcon = Icons.schedule;
+        statusText = 'Menunggu';
+        break;
+      case 'failed':
+        statusColor = AppColors.error;
+        statusIcon = Icons.error;
+        statusText = 'Gagal';
+        break;
+      case 'refunded':
+        statusColor = Colors.orange;
+        statusIcon = Icons.refresh;
+        statusText = 'Dikembalikan';
+        break;
+      default:
+        statusColor = Colors.grey;
+        statusIcon = Icons.info;
+        statusText = payment.status;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: statusColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(statusIcon, color: statusColor, size: 20),
+        ),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                payment.formattedAmount,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: statusColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: statusColor.withOpacity(0.3)),
+              ),
+              child: Text(
+                statusText,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Text(
+              payment.formattedDate,
+              style: const TextStyle(fontSize: 12),
+            ),
+            if (payment.paymentMethod != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Kaedah: ${payment.formattedPaymentMethod}',
+                style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+              ),
+            ],
+            if (payment.paymentReference != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Rujukan: ${payment.paymentReference}',
+                style: const TextStyle(fontSize: 10, color: AppColors.textHint, fontFamily: 'monospace'),
+              ),
+            ],
+            if (payment.failureReason != null) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline, color: AppColors.error, size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        payment.failureReason!,
+                        style: TextStyle(fontSize: 11, color: AppColors.error),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (payment.isFailed || payment.isPending) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  icon: _retryingPaymentId == payment.id
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh, size: 16),
+                  label: Text(
+                    _retryingPaymentId == payment.id ? 'Menjana...' : 'Cuba Bayar Semula',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                  onPressed: _retryingPaymentId == payment.id ? null : () => _handleRetryPayment(payment),
+                ),
+              ),
+            ],
+          ],
+        ),
+        trailing: payment.receiptUrl != null
+            ? IconButton(
+                icon: const Icon(Icons.receipt, color: AppColors.primary),
+                tooltip: 'Lihat Resit',
+                onPressed: () => _openReceipt(payment.receiptUrl!),
+              )
+            : null,
+        isThreeLine: payment.failureReason != null || payment.paymentMethod != null,
+      ),
+    );
+  }
+
+  Future<void> _openReceipt(String receiptUrl) async {
+    try {
+      final uri = Uri.parse(receiptUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Tidak dapat membuka resit')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleRetryPayment(SubscriptionPayment payment) async {
+    // Payment method options (extensible)
+    final methods = [
+      {'code': 'bcl_my', 'label': 'BCL.my'},
+    ];
+    String selectedGateway = payment.paymentGateway.isNotEmpty
+        ? payment.paymentGateway
+        : 'bcl_my';
+    final selectedLabel = (methods.firstWhere(
+      (m) => m['code'] == selectedGateway,
+      orElse: () => methods.first,
+    )['label']) as String;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cuba Bayar Semula?'),
+        content: Text(
+            'Pembayaran sebelumnya gagal atau belum selesai.\nKaedah: $selectedLabel\nTeruskan untuk jana pautan pembayaran baharu?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Teruskan'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _retryingPaymentId = payment.id);
+    try {
+      await _subscriptionService.retryPayment(
+        payment: payment,
+        paymentGateway: selectedGateway,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pautan pembayaran baharu dibuka. Sila lengkapkan bayaran.')),
+        );
+        await _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menjana pembayaran semula: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _retryingPaymentId = null);
+      }
+    }
+  }
+
+  Future<void> _showChangePlanDialog() async {
+    if (_currentSubscription == null) return;
+
+    final currentId = _currentSubscription!.planId;
+    SubscriptionPlan? selected;
+    double? amountDuePreview;
+    double? creditPreview;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> _selectPlan(SubscriptionPlan plan) async {
+              if (plan.id == currentId) return;
+              setSheetState(() {
+                selected = plan;
+                amountDuePreview = null;
+                creditPreview = null;
+              });
+              try {
+                final quote = await _subscriptionService.getProrationQuote(plan.id);
+                setSheetState(() {
+                  amountDuePreview = quote.amountDue;
+                  creditPreview = quote.creditApplied;
+                });
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gagal kira prorata: $e')),
+                  );
+                }
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Tukar Pelan (Prorata)',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  ..._plans.map((plan) {
+                    final isCurrent = plan.id == currentId;
+                    return Card(
+                      child: ListTile(
+                        title: Text(plan.name),
+                        subtitle: Text('${plan.durationMonths} bulan'),
+                        trailing: isCurrent
+                            ? const Chip(label: Text('Semasa'))
+                            : const Icon(Icons.chevron_right),
+                        onTap: isCurrent ? null : () => _selectPlan(plan),
+                      ),
+                    );
+                  }),
+                  if (selected != null) ...[
+                    const SizedBox(height: 12),
+                    const Text('Ringkasan', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    if (creditPreview != null)
+                      Text('Kredit baki: RM ${creditPreview!.toStringAsFixed(2)}'),
+                    if (amountDuePreview != null)
+                      Text(
+                        amountDuePreview == 0
+                            ? 'Jumlah perlu bayar: RM 0 (ditukar serta-merta)'
+                            : 'Jumlah perlu bayar: RM ${amountDuePreview!.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: amountDuePreview == null
+                          ? null
+                          : () async {
+                              Navigator.of(context).pop(true);
+                              await _handleChangePlan(selected!, amountDuePreview!);
+                            },
+                      child: const Text('Teruskan'),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _handleChangePlan(SubscriptionPlan plan, double amountDuePreview) async {
+    try {
+      setState(() => _processingPayment = true);
+      await _subscriptionService.changePlanProrated(plan.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              amountDuePreview == 0
+                  ? 'Tukar pelan dijadualkan pada akhir kitaran semasa (tanpa caj).'
+                  : 'Pautan pembayaran dibuka. Sila lengkapkan bayaran.',
+            ),
+          ),
+        );
+        await _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal tukar pelan: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processingPayment = false);
+    }
   }
 
   Widget _buildBillingInfo() {
@@ -960,7 +1497,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ),
             _buildBillingRow(
               'Jumlah Dibayar',
-              'RM ${subscription.totalAmount.toStringAsFixed(2)}',
+              'RM ${subscription.totalAmount.round()}',
               isAmount: true,
             ),
           ],

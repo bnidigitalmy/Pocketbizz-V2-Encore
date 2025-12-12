@@ -1,9 +1,22 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 import '../models/subscription_plan.dart';
 import '../models/subscription.dart';
+import '../models/subscription_payment.dart';
 import '../models/plan_limits.dart' show PlanLimits, LimitInfo;
 import '../models/early_adopter.dart';
 import '../../../../core/supabase/supabase_client.dart';
+import '../../../../core/utils/pdf_generator.dart';
+import '../../../../core/services/document_storage_service.dart';
+import '../../../../data/repositories/business_profile_repository_supabase.dart';
+import 'package:uuid/uuid.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show
+        RealtimeChannel,
+        PostgresChangeEvent,
+        PostgresChangeFilter,
+        PostgresChangeFilterType;
+import 'dart:convert';
 
 /// Subscription Repository
 /// Handles all subscription-related database operations
@@ -74,17 +87,24 @@ class SubscriptionRepositorySupabase {
         json['duration_months'] = planData['duration_months'] as int? ?? 1;
       }
 
-      return Subscription.fromJson(json);
+      // Apply grace/expiry transitions on read
+      final updated = await _applyGraceTransitions(json);
+      return Subscription.fromJson(updated);
     } catch (e) {
       throw Exception('Failed to fetch user subscription: $e');
     }
   }
 
   /// Get all user subscriptions (history)
+  /// Excludes current active/trial subscriptions to avoid duplication
   Future<List<Subscription>> getUserSubscriptionHistory() async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return [];
+
+      // Get current subscription ID to exclude it from history
+      final currentSub = await getUserSubscription();
+      final currentSubId = currentSub?.id;
 
       final response = await _supabase
           .from('subscriptions')
@@ -98,7 +118,7 @@ class SubscriptionRepositorySupabase {
           .eq('user_id', userId)
           .order('created_at', ascending: false);
 
-      return (response as List).map((json) {
+      final subscriptions = (response as List).map((json) {
         final data = json as Map<String, dynamic>;
         final planData = data['subscription_plans'] as Map<String, dynamic>?;
         
@@ -108,6 +128,23 @@ class SubscriptionRepositorySupabase {
         }
 
         return Subscription.fromJson(data);
+      }).toList();
+
+      // Filter out current subscription and active/trial subscriptions
+      final filtered = subscriptions.where((sub) {
+        // Exclude current subscription by ID
+        if (currentSubId != null && sub.id == currentSubId) return false;
+        // Exclude active, trial, and grace subscriptions (only show expired/cancelled)
+        if (sub.status == SubscriptionStatus.active || sub.isOnTrial || sub.status == SubscriptionStatus.grace) return false;
+        return true;
+      }).toList();
+
+      // Remove duplicates by ID (extra safety)
+      final seenIds = <String>{};
+      return filtered.where((sub) {
+        if (seenIds.contains(sub.id)) return false;
+        seenIds.add(sub.id);
+        return true;
       }).toList();
     } catch (e) {
       throw Exception('Failed to fetch subscription history: $e');
@@ -261,6 +298,7 @@ class SubscriptionRepositorySupabase {
       // Calculate expiry date
       final now = DateTime.now();
       final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      final graceUntil = expiresAt.add(const Duration(days: 7));
 
       // Create subscription
       final response = await _supabase
@@ -275,6 +313,7 @@ class SubscriptionRepositorySupabase {
             'status': 'active',
             'started_at': now.toIso8601String(),
             'expires_at': expiresAt.toIso8601String(),
+            'grace_until': graceUntil.toIso8601String(),
             'payment_gateway': 'bcl_my',
             'payment_reference': paymentReference,
             'payment_status': 'completed',
@@ -299,7 +338,7 @@ class SubscriptionRepositorySupabase {
       }
 
       // Create payment record
-      await _supabase.from('subscription_payments').insert({
+      final paymentResponse = await _supabase.from('subscription_payments').insert({
         'subscription_id': json['id'] as String,
         'user_id': userId,
         'amount': calculatedTotal,
@@ -309,6 +348,22 @@ class SubscriptionRepositorySupabase {
         'gateway_transaction_id': gatewayTransactionId,
         'status': 'completed',
         'paid_at': now.toIso8601String(),
+      }).select('id').single();
+
+      final paymentId = (paymentResponse as Map<String, dynamic>)['id'] as String;
+
+      // Generate and upload receipt (non-blocking)
+      _generateAndUploadReceipt(
+        subscription: Subscription.fromJson(json),
+        plan: plan,
+        paymentReference: paymentReference,
+        gatewayTransactionId: gatewayTransactionId,
+        amount: calculatedTotal,
+        paidAt: now,
+        paymentId: paymentId,
+      ).catchError((e) {
+        // Log error but don't fail subscription creation
+        print('⚠️ Failed to generate receipt (non-critical): $e');
       });
 
       return Subscription.fromJson(json);
@@ -318,6 +373,7 @@ class SubscriptionRepositorySupabase {
   }
 
   /// Get plan limits (usage tracking)
+  /// Counts actual usage: products, stock items (ingredients), and transactions (sales)
   Future<PlanLimits> getPlanLimits() async {
     try {
       final userId = _supabase.auth.currentUser?.id;
@@ -329,25 +385,32 @@ class SubscriptionRepositorySupabase {
         );
       }
 
-      // Get subscription to check if active
+      // Get subscription to check if active and determine limits
       final subscription = await getUserSubscription();
       final isActive = subscription?.isActive ?? false;
 
-      // For now, return unlimited for active subscriptions
-      // Can be customized based on plan tier later
-      if (isActive) {
-        return PlanLimits(
-          products: LimitInfo(current: 0, max: 999999),
-          stockItems: LimitInfo(current: 0, max: 999999),
-          transactions: LimitInfo(current: 0, max: 999999),
-        );
-      }
+      // Count actual usage
+      final usageCounts = await Future.wait([
+        _countProducts(userId),
+        _countStockItems(userId),
+        _countTransactions(userId),
+      ]);
 
-      // For trial or expired, return limited (can customize)
+      final productsCount = usageCounts[0] as int;
+      final stockItemsCount = usageCounts[1] as int;
+      final transactionsCount = usageCounts[2] as int;
+
+      // Set limits based on subscription status
+      // Active subscriptions: unlimited (999999)
+      // Trial/Expired: limited (50 products, 100 stock items, 100 transactions)
+      final maxProducts = isActive ? 999999 : 50;
+      final maxStockItems = isActive ? 999999 : 100;
+      final maxTransactions = isActive ? 999999 : 100;
+
       return PlanLimits(
-        products: LimitInfo(current: 0, max: 50),
-        stockItems: LimitInfo(current: 0, max: 100),
-        transactions: LimitInfo(current: 0, max: 100),
+        products: LimitInfo(current: productsCount, max: maxProducts),
+        stockItems: LimitInfo(current: stockItemsCount, max: maxStockItems),
+        transactions: LimitInfo(current: transactionsCount, max: maxTransactions),
       );
     } catch (e) {
       // Return default limits on error
@@ -356,6 +419,49 @@ class SubscriptionRepositorySupabase {
         stockItems: LimitInfo(current: 0, max: 0),
         transactions: LimitInfo(current: 0, max: 0),
       );
+    }
+  }
+
+  /// Count products for user
+  Future<int> _countProducts(String userId) async {
+    try {
+      final response = await _supabase
+          .from('products')
+          .select('id')
+          .eq('business_owner_id', userId)
+          .eq('is_active', true);
+
+      return (response as List).length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /// Count stock items (ingredients) for user
+  Future<int> _countStockItems(String userId) async {
+    try {
+      final response = await _supabase
+          .from('ingredients')
+          .select('id')
+          .eq('business_owner_id', userId);
+
+      return (response as List).length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /// Count transactions (sales) for user
+  Future<int> _countTransactions(String userId) async {
+    try {
+      final response = await _supabase
+          .from('sales')
+          .select('id')
+          .eq('business_owner_id', userId);
+
+      return (response as List).length;
+    } catch (e) {
+      return 0;
     }
   }
 
@@ -409,6 +515,7 @@ class SubscriptionRepositorySupabase {
     required double totalAmount,
     required double pricePerMonth,
     required bool isEarlyAdopter,
+    String paymentGateway = 'bcl_my',
   }) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
@@ -420,6 +527,7 @@ class SubscriptionRepositorySupabase {
       final discountApplied = (pricePerMonth * plan.durationMonths) - totalAmount;
       final now = DateTime.now();
       final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      final graceUntil = expiresAt.add(const Duration(days: 7));
 
       // Create pending subscription
       final subResponse = await _supabase
@@ -433,6 +541,7 @@ class SubscriptionRepositorySupabase {
             'is_early_adopter': isEarlyAdopter,
             'status': 'pending_payment',
             'expires_at': expiresAt.toIso8601String(),
+            'grace_until': graceUntil.toIso8601String(),
             'payment_gateway': 'bcl_my',
             'payment_reference': orderId,
             'payment_status': 'pending',
@@ -449,7 +558,7 @@ class SubscriptionRepositorySupabase {
         'user_id': userId,
         'amount': totalAmount,
         'currency': 'MYR',
-        'payment_gateway': 'bcl_my',
+        'payment_gateway': paymentGateway,
         'payment_reference': orderId,
         'status': 'pending',
       });
@@ -492,6 +601,7 @@ class SubscriptionRepositorySupabase {
 
       final now = DateTime.now();
       final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      final graceUntil = expiresAt.add(const Duration(days: 7));
 
       // Expire any existing active/trial for this user (to satisfy unique index)
       await _supabase
@@ -510,6 +620,7 @@ class SubscriptionRepositorySupabase {
             'status': 'active',
             'started_at': now.toIso8601String(),
             'expires_at': expiresAt.toIso8601String(),
+            'grace_until': graceUntil.toIso8601String(),
             'payment_status': 'completed',
             'payment_completed_at': now.toIso8601String(),
             'updated_at': now.toIso8601String(),
@@ -524,15 +635,19 @@ class SubscriptionRepositorySupabase {
           ''')
           .single();
 
-      // Update payment record to completed
-      await _supabase
+      // Update payment record to completed and get payment ID
+      final paymentUpdate = await _supabase
           .from('subscription_payments')
           .update({
             'status': 'completed',
             'paid_at': now.toIso8601String(),
             'gateway_transaction_id': gatewayTransactionId,
           })
-          .eq('payment_reference', orderId);
+          .eq('payment_reference', orderId)
+          .select('id')
+          .single();
+
+      final paymentId = (paymentUpdate as Map<String, dynamic>)['id'] as String;
 
       final json = updated as Map<String, dynamic>;
       final planData = json['subscription_plans'] as Map<String, dynamic>?;
@@ -541,10 +656,745 @@ class SubscriptionRepositorySupabase {
         json['duration_months'] = planData['duration_months'] as int? ?? plan.durationMonths;
       }
 
-      return Subscription.fromJson(json);
+      // Generate and upload receipt (non-blocking)
+      final subscription = Subscription.fromJson(json);
+      _generateAndUploadReceipt(
+        subscription: subscription,
+        plan: plan,
+        paymentReference: orderId,
+        gatewayTransactionId: gatewayTransactionId,
+        amount: (pendingData['total_amount'] as num).toDouble(),
+        paidAt: now,
+        paymentId: paymentId,
+      ).catchError((e) {
+        // Log error but don't fail subscription activation
+        print('⚠️ Failed to generate receipt (non-critical): $e');
+      });
+
+      // Send payment success email
+      await _sendEmailNotification(
+        subject: 'Pembayaran Berjaya',
+        html:
+            '<p>Terima kasih, pembayaran anda telah diterima.</p><p>Pelan: ${plan.name} (${plan.durationMonths} bulan)</p><p>Jumlah: RM ${totalAmount.toStringAsFixed(2)}</p>',
+        type: 'payment_success',
+        meta: {
+          'payment_reference': orderId,
+          'subscription_id': subscription.id,
+          'plan_id': planId,
+          'amount': totalAmount,
+        },
+      );
+
+      return subscription;
     } catch (e) {
       throw Exception('Failed to activate pending payment: $e');
     }
   }
+
+  /// Generate PDF receipt and upload to Supabase Storage
+  /// Updates subscription_payments.receipt_url after upload
+  Future<void> _generateAndUploadReceipt({
+    required Subscription subscription,
+    required SubscriptionPlan plan,
+    required String paymentReference,
+    String? gatewayTransactionId,
+    required double amount,
+    required DateTime paidAt,
+    required String paymentId,
+  }) async {
+    try {
+      // Get business profile for receipt
+      final businessProfileRepo = BusinessProfileRepository();
+      final businessProfile = await businessProfileRepo.getBusinessProfile();
+
+      // Get user info
+      final user = _supabase.auth.currentUser;
+      final userEmail = user?.email;
+      final userName = user?.userMetadata?['full_name'] as String?;
+
+      // Generate PDF receipt
+      final pdfBytes = await PDFGenerator.generateSubscriptionReceipt(
+        paymentReference: paymentReference,
+        planName: subscription.planName,
+        durationMonths: subscription.durationMonths,
+        amount: amount,
+        paidAt: paidAt,
+        paymentGateway: subscription.paymentGateway ?? 'bcl_my',
+        gatewayTransactionId: gatewayTransactionId,
+        businessName: businessProfile?.businessName,
+        businessAddress: businessProfile?.address,
+        businessPhone: businessProfile?.phone,
+        userEmail: userEmail,
+        userName: userName,
+        isEarlyAdopter: subscription.isEarlyAdopter,
+      );
+
+      // Upload to Supabase Storage
+      final fileName = 'subscription_receipt_${paymentReference}_${DateFormat('yyyyMMdd').format(paidAt)}.pdf';
+      final uploadResult = await DocumentStorageService.uploadDocument(
+        pdfBytes: pdfBytes,
+        fileName: fileName,
+        documentType: 'subscription_receipt',
+        relatedEntityType: 'subscription',
+        relatedEntityId: subscription.id,
+      );
+
+      // Update payment record with receipt URL
+      await _supabase
+          .from('subscription_payments')
+          .update({
+            'receipt_url': uploadResult['url'],
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', paymentId);
+
+      print('✅ Subscription receipt generated and uploaded: ${uploadResult['url']}');
+    } catch (e) {
+      print('❌ Failed to generate subscription receipt: $e');
+      rethrow;
+    }
+  }
+
+  /// Get payment history for current user
+  Future<List<SubscriptionPayment>> getPaymentHistory() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return [];
+
+      final response = await _supabase
+          .from('subscription_payments')
+          .select()
+          .eq('user_id', userId)
+          .order('created_at', ascending: false)
+          .limit(50); // Limit to last 50 payments
+
+      return (response as List)
+          .map((json) => SubscriptionPayment.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      throw Exception('Failed to fetch payment history: $e');
+    }
+  }
+
+  /// Get payment history for specific subscription
+  Future<List<SubscriptionPayment>> getSubscriptionPayments(String subscriptionId) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return [];
+
+      final response = await _supabase
+          .from('subscription_payments')
+          .select()
+          .eq('subscription_id', subscriptionId)
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
+
+      return (response as List)
+          .map((json) => SubscriptionPayment.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      throw Exception('Failed to fetch subscription payments: $e');
+    }
+  }
+
+  /// Retry a failed/pending payment by creating a new payment reference/order
+  Future<RetryPaymentResult> retryPayment({
+    required SubscriptionPayment payment,
+    String? paymentGateway,
+  }) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Fetch subscription to get plan/duration
+      final subscriptionResp = await _supabase
+          .from('subscriptions')
+          .select()
+          .eq('id', payment.subscriptionId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (subscriptionResp == null) {
+        throw Exception('Subscription not found for retry');
+      }
+
+      final subscriptionData = subscriptionResp as Map<String, dynamic>;
+      final planId = subscriptionData['plan_id'] as String;
+      final plan = await getPlanById(planId);
+      final amount = (subscriptionData['total_amount'] as num).toDouble();
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+      final newOrderId = 'PBZ-${const Uuid().v4()}';
+      final selectedGateway = paymentGateway ?? payment.paymentGateway;
+
+      // Update previous payment with retry tracking
+      await _supabase.from('subscription_payments').update({
+        'retry_count': payment.retryCount + 1,
+        'last_retry_at': nowIso,
+        'updated_at': nowIso,
+      }).eq('id', payment.id);
+
+      // Insert a new pending payment record with new reference
+      await _supabase.from('subscription_payments').insert({
+        'subscription_id': payment.subscriptionId,
+        'user_id': userId,
+        'amount': amount,
+        'currency': payment.currency,
+        'payment_gateway': selectedGateway,
+        'payment_reference': newOrderId,
+        'status': 'pending',
+      });
+
+      // Point subscription to new payment reference
+      await _supabase.from('subscriptions').update({
+        'payment_reference': newOrderId,
+        'payment_status': 'pending',
+        'status': 'pending_payment',
+        'updated_at': nowIso,
+      }).eq('id', payment.subscriptionId);
+
+      return RetryPaymentResult(
+        orderId: newOrderId,
+        durationMonths: plan.durationMonths,
+        planId: planId,
+        paymentGateway: selectedGateway,
+      );
+    } catch (e) {
+      throw Exception('Failed to retry payment: $e');
+    }
+  }
+
+  /// Apply grace/expiry transitions based on current time
+  Future<Map<String, dynamic>> _applyGraceTransitions(Map<String, dynamic> json) async {
+    try {
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+      final status = (json['status'] as String).toLowerCase();
+      final expiresAt = DateTime.parse(json['expires_at'] as String);
+      DateTime? graceUntil = json['grace_until'] != null
+          ? DateTime.parse(json['grace_until'] as String)
+          : null;
+      final startedAt = json['started_at'] != null
+          ? DateTime.parse(json['started_at'] as String)
+          : null;
+
+      // If pending_payment but already paid and start date reached -> activate
+      if (status == 'pending_payment' &&
+          (json['payment_status'] as String?) == 'completed' &&
+          startedAt != null &&
+          !now.isBefore(startedAt)) {
+      final newExpires =
+          startedAt.add(Duration(days: (json['duration_months'] as int) * 30));
+        final newGrace = newExpires.add(const Duration(days: 7));
+        await _supabase
+            .from('subscriptions')
+            .update({
+              'status': 'active',
+              'started_at': startedAt.toIso8601String(),
+              'expires_at': newExpires.toIso8601String(),
+              'grace_until': newGrace.toIso8601String(),
+              'updated_at': nowIso,
+            })
+            .eq('id', json['id'] as String);
+        json['status'] = 'active';
+        json['expires_at'] = newExpires.toIso8601String();
+        json['grace_until'] = newGrace.toIso8601String();
+      }
+
+      // If active but already past expiry -> move to grace
+      if (status == 'active' && now.isAfter(expiresAt)) {
+        graceUntil ??= expiresAt.add(const Duration(days: 7));
+        await _supabase.from('subscriptions').update({
+          'status': 'grace',
+          'grace_until': graceUntil.toIso8601String(),
+          'updated_at': nowIso,
+        }).eq('id', json['id'] as String);
+        json['status'] = 'grace';
+        json['grace_until'] = graceUntil.toIso8601String();
+
+        // Send grace reminder email once at transition
+        await _sendEmailNotification(
+          subject: 'Langganan Dalam Tempoh Tangguh',
+          html:
+              '<p>Langganan anda telah memasuki tempoh tangguh (grace period).</p><p>Sila lengkapkan pembayaran dalam 7 hari untuk elak tamat.</p>',
+          type: 'grace_reminder',
+          meta: {
+            'subscription_id': json['id'],
+            'grace_until': graceUntil.toIso8601String(),
+          },
+        );
+      }
+
+      // If grace but past grace_until -> expire
+      if (json['status'] == 'grace' || status == 'grace') {
+        graceUntil ??= expiresAt.add(const Duration(days: 7));
+        if (now.isAfter(graceUntil)) {
+          await _supabase
+              .from('subscriptions')
+              .update({
+                'status': 'expired',
+                'updated_at': nowIso,
+              })
+              .eq('id', json['id'] as String);
+          json['status'] = 'expired';
+        } else {
+          json['grace_until'] = graceUntil.toIso8601String();
+        }
+      }
+
+      return json;
+    } catch (_) {
+      // In case of any parsing issue, return original json
+      return json;
+    }
+  }
+
+  /// Get proration quote for changing plan
+  Future<ProrationQuote> getProrationQuote({
+    required String targetPlanId,
+  }) async {
+    final current = await getUserSubscription();
+    if (current == null) {
+      throw Exception('No active subscription to change');
+    }
+    final plan = await getPlanById(targetPlanId);
+    final isEarlyAdopterFlag = await isEarlyAdopter();
+    final pricePerMonth = isEarlyAdopterFlag ? 29.0 : plan.pricePerMonth;
+    final newTotal = isEarlyAdopterFlag ? plan.getPriceForEarlyAdopter() : plan.totalPrice;
+
+    final remainingDays = _remainingPaidDays(current);
+    final perDayCurrent = current.totalAmount / (current.durationMonths * 30);
+    final credit = (perDayCurrent * remainingDays).clamp(0, current.totalAmount);
+    final amountDue = (newTotal - credit).clamp(0, double.maxFinite);
+
+    return ProrationQuote(
+      creditApplied: credit.toDouble(),
+      amountDue: amountDue.toDouble(),
+      newTotal: newTotal,
+      durationMonths: plan.durationMonths,
+      planId: targetPlanId,
+      planName: plan.name,
+      pricePerMonth: pricePerMonth,
+      isEarlyAdopter: isEarlyAdopterFlag,
+    );
+  }
+
+  /// Start plan change with proration
+  /// If amountDue > 0 -> creates pending payment with new order id
+  /// If amountDue == 0 -> immediately activates new subscription
+  Future<ProrationResult> changePlanProrated({
+    required String targetPlanId,
+  }) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+
+    final current = await getUserSubscription();
+    if (current == null) throw Exception('No active subscription to change');
+
+    final quote = await getProrationQuote(targetPlanId: targetPlanId);
+    final now = DateTime.now();
+    final nowIso = now.toIso8601String();
+    final newOrderId = 'PBZ-${const Uuid().v4()}';
+    final isDowngradeOrSidegrade = quote.newTotal <= current.totalAmount;
+
+    // Expire current active/trial/grace to respect unique index before new activation
+    Future<void> _expireCurrent() async {
+      await _supabase
+          .from('subscriptions')
+          .update({
+            'status': 'expired',
+            'updated_at': nowIso,
+          })
+          .eq('user_id', userId)
+          .inFilter('status', ['trial', 'active', 'grace']);
+    }
+
+    if (quote.amountDue == 0) {
+      // No charge. If downgrade/sidegrade, schedule at next cycle end; else activate now.
+      if (isDowngradeOrSidegrade) {
+        final scheduledStart = current.expiresAt;
+        final expiresAt = scheduledStart.add(Duration(days: quote.durationMonths * 30));
+        final graceUntil = expiresAt.add(const Duration(days: 7));
+
+        final response = await _supabase
+            .from('subscriptions')
+            .insert({
+              'user_id': userId,
+              'plan_id': quote.planId,
+              'price_per_month': quote.pricePerMonth,
+              'total_amount': quote.newTotal,
+              'discount_applied': (quote.pricePerMonth * quote.durationMonths) - quote.newTotal,
+              'is_early_adopter': quote.isEarlyAdopter,
+              // using pending_payment but already paid, will auto-activate at start
+              'status': 'pending_payment',
+              'started_at': scheduledStart.toIso8601String(),
+              'expires_at': expiresAt.toIso8601String(),
+              'grace_until': graceUntil.toIso8601String(),
+              'payment_gateway': 'bcl_my',
+              'payment_reference': 'PRORATE-SCHEDULED-$newOrderId',
+              'payment_status': 'completed',
+              'payment_completed_at': nowIso,
+              'auto_renew': false,
+            })
+            .select('id')
+            .single();
+
+        final newSubscriptionId = (response as Map<String, dynamic>)['id'] as String;
+
+        await _supabase.from('subscription_payments').insert({
+          'subscription_id': newSubscriptionId,
+          'user_id': userId,
+          'amount': 0,
+          'currency': 'MYR',
+          'payment_gateway': 'bcl_my',
+          'payment_reference': 'PRORATE-SCHEDULED-$newOrderId',
+          'status': 'completed',
+          'paid_at': nowIso,
+        });
+
+        await _sendEmailNotification(
+          subject: 'Tukar Pelan Dijadualkan',
+          html:
+              '<p>Permintaan tukar pelan anda telah dijadualkan pada akhir kitaran semasa.</p><p>Pelan baharu: ${quote.planName} (${quote.durationMonths} bulan)</p><p>Tarikh mula: ${scheduledStart.toIso8601String()}</p>',
+          type: 'plan_change_scheduled',
+          meta: {
+            'subscription_id': newSubscriptionId,
+            'plan_id': quote.planId,
+            'scheduled_start': scheduledStart.toIso8601String(),
+          },
+        );
+
+        return ProrationResult(
+          amountDue: 0,
+          orderId: null,
+          durationMonths: quote.durationMonths,
+          planId: quote.planId,
+          paymentGateway: 'bcl_my',
+          newSubscriptionId: newSubscriptionId,
+          scheduled: true,
+          scheduledStart: scheduledStart,
+        );
+      }
+
+      // No charge and upgrade: directly activate now
+      await _expireCurrent();
+
+      final expiresAt = now.add(Duration(days: quote.durationMonths * 30));
+      final graceUntil = expiresAt.add(const Duration(days: 7));
+
+      final response = await _supabase
+          .from('subscriptions')
+          .insert({
+            'user_id': userId,
+            'plan_id': quote.planId,
+            'price_per_month': quote.pricePerMonth,
+            'total_amount': quote.newTotal,
+            'discount_applied': (quote.pricePerMonth * quote.durationMonths) - quote.newTotal,
+            'is_early_adopter': quote.isEarlyAdopter,
+            'status': 'active',
+            'started_at': nowIso,
+            'expires_at': expiresAt.toIso8601String(),
+            'grace_until': graceUntil.toIso8601String(),
+            'payment_gateway': 'bcl_my',
+            'payment_reference': 'PRORATE-NOCHARGE-$newOrderId',
+            'payment_status': 'completed',
+            'payment_completed_at': nowIso,
+            'auto_renew': false,
+          })
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''')
+          .single();
+
+      final json = response as Map<String, dynamic>;
+      final planData = json['subscription_plans'] as Map<String, dynamic>?;
+      if (planData != null) {
+        json['plan_name'] = planData['name'] as String? ?? quote.planName;
+        json['duration_months'] = planData['duration_months'] as int? ?? quote.durationMonths;
+      }
+
+      // Record zero-amount payment for audit
+      await _supabase.from('subscription_payments').insert({
+        'subscription_id': json['id'],
+        'user_id': userId,
+        'amount': 0,
+        'currency': 'MYR',
+        'payment_gateway': 'bcl_my',
+        'payment_reference': 'PRORATE-NOCHARGE-$newOrderId',
+        'status': 'completed',
+        'paid_at': nowIso,
+      });
+
+      return ProrationResult(
+        amountDue: 0,
+        orderId: null,
+        durationMonths: quote.durationMonths,
+        planId: quote.planId,
+        paymentGateway: 'bcl_my',
+        newSubscriptionId: json['id'] as String,
+      );
+    }
+
+    // amountDue > 0: create pending payment session for proration
+    final plan = await getPlanById(targetPlanId);
+    final discountApplied = (quote.pricePerMonth * plan.durationMonths) - quote.newTotal;
+    final pendingExpiresAt = now.add(Duration(days: plan.durationMonths * 30));
+    final pendingGraceUntil = pendingExpiresAt.add(const Duration(days: 7));
+
+    await _expireCurrent();
+
+    final subResponse = await _supabase
+        .from('subscriptions')
+        .insert({
+          'user_id': userId,
+          'plan_id': targetPlanId,
+          'price_per_month': quote.pricePerMonth,
+          'total_amount': quote.newTotal,
+          'discount_applied': discountApplied,
+          'is_early_adopter': quote.isEarlyAdopter,
+          'status': 'pending_payment',
+          'expires_at': pendingExpiresAt.toIso8601String(),
+          'grace_until': pendingGraceUntil.toIso8601String(),
+          'payment_gateway': 'bcl_my',
+          'payment_reference': newOrderId,
+          'payment_status': 'pending',
+          'auto_renew': false,
+        })
+        .select('id')
+        .single();
+
+    final newSubscriptionId = (subResponse as Map<String, dynamic>)['id'] as String;
+
+    await _supabase.from('subscription_payments').insert({
+        'subscription_id': newSubscriptionId,
+        'user_id': userId,
+        'amount': quote.amountDue,
+        'currency': 'MYR',
+        'payment_gateway': 'bcl_my',
+        'payment_reference': newOrderId,
+        'status': 'pending',
+    });
+
+    return ProrationResult(
+      amountDue: quote.amountDue,
+      orderId: newOrderId,
+      durationMonths: quote.durationMonths,
+      planId: targetPlanId,
+      paymentGateway: 'bcl_my',
+      newSubscriptionId: newSubscriptionId,
+    );
+  }
+
+  int _remainingPaidDays(Subscription current) {
+    final now = DateTime.now();
+    final end = current.expiresAt;
+    final diff = end.difference(now).inDays;
+    return diff > 0 ? diff : 0;
+  }
+
+  Future<void> _sendEmailNotification({
+    required String subject,
+    required String html,
+    String? to,
+    String type = 'payment_success',
+    Map<String, dynamic>? meta,
+  }) async {
+    final user = _supabase.auth.currentUser;
+    final userId = user?.id;
+    final targetEmail = to ?? user?.email;
+    if (userId == null || targetEmail == null) return;
+
+    String status = 'sent';
+    String? error;
+    try {
+      await _supabase.functions.invoke(
+        'resend-email',
+        body: {
+          'to': targetEmail,
+          'subject': subject,
+          'html': html,
+        },
+      );
+    } catch (e) {
+      status = 'failed';
+      error = e.toString();
+    } finally {
+      try {
+        await _supabase.from('notification_logs').insert({
+          'user_id': userId,
+          'channel': 'email',
+          'type': type,
+          'status': status,
+          'subject': subject,
+          'payload': meta != null ? jsonEncode(meta) : null,
+          'error': error,
+        });
+      } catch (_) {
+        // ignore logging errors
+      }
+    }
+  }
+
+  Future<void> _sendPaymentFailedEmail({
+    required SubscriptionPayment payment,
+    String? reason,
+  }) async {
+    // Fetch subscription + plan for context
+    try {
+      final subResp = await _supabase
+          .from('subscriptions')
+          .select('''
+            *,
+            subscription_plans:plan_id (name, duration_months)
+          ''')
+          .eq('id', payment.subscriptionId)
+          .maybeSingle();
+
+      final planName = (subResp?['subscription_plans']?['name'] as String?) ?? 'Pelan PocketBizz';
+      final duration =
+          (subResp?['subscription_plans']?['duration_months'] as int?) ?? 0;
+
+      final amount = payment.amount.toStringAsFixed(2);
+      final html = '''
+        <p>Maaf, pembayaran anda gagal diproses.</p>
+        <p>Pelan: $planName (${duration > 0 ? '$duration bulan' : ''})</p>
+        <p>Jumlah: RM $amount</p>
+        ${reason != null ? '<p>Sebab: $reason</p>' : ''}
+        <p>Sila cuba bayar semula melalui aplikasi.</p>
+      ''';
+
+      await _sendEmailNotification(
+        subject: 'Pembayaran Gagal',
+        html: html,
+        type: 'payment_failed',
+        meta: {
+          'payment_id': payment.id,
+          'subscription_id': payment.subscriptionId,
+          'amount': payment.amount,
+          'reason': reason,
+        },
+      );
+    } catch (e) {
+      // ignore failure to fetch plan; still try to send generic email
+      await _sendEmailNotification(
+        subject: 'Pembayaran Gagal',
+        html:
+            '<p>Maaf, pembayaran anda gagal diproses.</p><p>Sila cuba bayar semula melalui aplikasi.</p>',
+        type: 'payment_failed',
+        meta: {
+          'payment_id': payment.id,
+          'subscription_id': payment.subscriptionId,
+          'amount': payment.amount,
+          'reason': reason,
+        },
+      );
+    }
+  }
+
+  /// Subscribe to payment status changes for the current user
+  RealtimeChannel? subscribePaymentStatus(
+      void Function(SubscriptionPayment) onChange) {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return null;
+
+    final channel =
+        _supabase.channel('subscription_payments_status_${userId.hashCode}');
+
+    channel
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'subscription_payments',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            final data = payload.newRecord ?? payload.oldRecord;
+            if (data is Map<String, dynamic>) {
+              try {
+                final payment = SubscriptionPayment.fromJson(data);
+                onChange(payment);
+              } catch (_) {}
+            }
+          },
+        )
+        .subscribe();
+
+    return channel;
+  }
+
+  // Exposed for service layer
+  Future<void> sendPaymentFailedEmail({
+    required SubscriptionPayment payment,
+    String? reason,
+  }) {
+    return _sendPaymentFailedEmail(payment: payment, reason: reason);
+  }
+}
+
+class ProrationQuote {
+  final double creditApplied;
+  final double amountDue;
+  final double newTotal;
+  final int durationMonths;
+  final String planId;
+  final String planName;
+  final double pricePerMonth;
+  final bool isEarlyAdopter;
+
+  ProrationQuote({
+    required this.creditApplied,
+    required this.amountDue,
+    required this.newTotal,
+    required this.durationMonths,
+    required this.planId,
+    required this.planName,
+    required this.pricePerMonth,
+    required this.isEarlyAdopter,
+  });
+}
+
+class ProrationResult {
+  final double amountDue;
+  final String? orderId;
+  final int durationMonths;
+  final String planId;
+  final String paymentGateway;
+  final String newSubscriptionId;
+  final bool scheduled;
+  final DateTime? scheduledStart;
+
+  ProrationResult({
+    required this.amountDue,
+    required this.orderId,
+    required this.durationMonths,
+    required this.planId,
+    required this.paymentGateway,
+    required this.newSubscriptionId,
+    this.scheduled = false,
+    this.scheduledStart,
+  });
+}
+
+class RetryPaymentResult {
+  final String orderId;
+  final int durationMonths;
+  final String planId;
+  final String paymentGateway;
+
+  RetryPaymentResult({
+    required this.orderId,
+    required this.durationMonths,
+    required this.planId,
+    required this.paymentGateway,
+  });
 }
 
