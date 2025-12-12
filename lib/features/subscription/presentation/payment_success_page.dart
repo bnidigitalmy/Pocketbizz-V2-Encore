@@ -286,6 +286,7 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
       setState(() {
         _elapsedMs += 2000;
       });
+      // Stop polling after 30 seconds
       if (_elapsedMs >= 30000) {
         _elapsedTimer?.cancel();
         _pollTimer?.cancel();
@@ -311,10 +312,16 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
     });
   }
 
-  /// Fallback polling (only used if realtime fails or as backup)
+  /// Polling subscription status (every 2 seconds, stop after 30s)
   Future<void> _pollSubscription() async {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      // Stop polling after 30 seconds
+      if (_elapsedMs >= 30000) {
+        _pollTimer?.cancel();
+        return;
+      }
+
       try {
         final sub = await _subscriptionService.getCurrentSubscription();
         if (!mounted) return;
@@ -386,36 +393,51 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
 
   @override
   Widget build(BuildContext context) {
-    final showSuccess = _status == _PaymentStatus.success && _active != null;
-    final showPending = _status == _PaymentStatus.pending || _status == _PaymentStatus.processing;
-
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Pembayaran'),
-        backgroundColor: AppColors.primary,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 8),
-                _buildHeader(showSuccess, showPending),
-                const SizedBox(height: 16),
-                _buildPaymentDetails(),
-                const SizedBox(height: 16),
-                _buildActivationStatus(showSuccess, showPending),
-                const SizedBox(height: 16),
-                _buildActions(showSuccess),
-                const SizedBox(height: 16),
-                _buildHelpText(),
-              ],
+      backgroundColor: Colors.grey[50],
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.green[200]!, width: 1),
+                ),
+                color: Colors.green[50],
+                elevation: 0,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Header with icon
+                      _buildHeader(),
+                      const SizedBox(height: 24),
+                      
+                      // Payment Details
+                      if (_orderNumber != null || _amount != null) ...[
+                        _buildPaymentDetails(),
+                        const SizedBox(height: 24),
+                      ],
+                      
+                      // Activation Status
+                      _buildActivationStatus(),
+                      const SizedBox(height: 24),
+                      
+                      // Action Buttons
+                      _buildActions(),
+                      const SizedBox(height: 24),
+                      
+                      // Help Text
+                      _buildHelpText(),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -423,49 +445,39 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
     );
   }
 
-  Widget _buildHeader(bool showSuccess, bool showPending) {
-    IconData icon;
-    Color color;
-    String title;
-    String subtitle;
-
-    if (showSuccess) {
-      icon = Icons.check_circle;
-      color = Colors.green;
-      title = 'Pembayaran Berjaya!';
-      subtitle = 'Terima kasih atas pembayaran anda';
-    } else if (_status == _PaymentStatus.failed) {
-      icon = Icons.error;
-      color = AppColors.error;
-      title = 'Pembayaran Gagal';
-      subtitle = 'Sila cuba lagi atau hubungi sokongan.';
-    } else {
-      icon = Icons.schedule;
-      color = Colors.orange;
-      title = 'Sedang Diproses';
-      subtitle = 'Sistem sedang mengesahkan pembayaran anda.';
-    }
-
+  Widget _buildHeader() {
     return Column(
       children: [
+        // Icon in circular background
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: Colors.green[100],
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, size: 48, color: color),
+          child: Icon(
+            Icons.check_circle,
+            size: 64,
+            color: Colors.green[600],
+          ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         Text(
-          title,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          'Pembayaran Berjaya!',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Colors.green[900],
+          ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 8),
         Text(
-          subtitle,
-          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+          'Terima kasih atas pembayaran anda',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.green[700],
+          ),
           textAlign: TextAlign.center,
         ),
       ],
@@ -473,199 +485,246 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
   }
 
   Widget _buildPaymentDetails() {
-    if (_orderNumber == null && _amount == null) return const SizedBox.shrink();
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Maklumat Pembayaran',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 8),
-          if (_orderNumber != null) _buildDetailRow('Order Number', _orderNumber!),
-          if (_amount != null) _buildDetailRow('Jumlah Dibayar', 'RM $_amount'),
-          if (_paymentMethod != null) _buildDetailRow('Kaedah Pembayaran', _formatPaymentMethod(_paymentMethod!)),
-          if (_gatewayRef != null) _buildDetailRow('Rujukan Gateway', _gatewayRef!),
-        ],
-      ),
-    );
-  }
-
-  String _formatPaymentMethod(String method) {
-    final methodLabels = {
-      'credit_card': 'Kad Kredit',
-      'online_banking': 'Online Banking',
-      'e_wallet': 'E-Wallet',
-      'bank_transfer': 'Bank Transfer',
-      'bcl_my': 'BCL.my',
-    };
-    return methodLabels[method.toLowerCase()] ?? method;
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivationStatus(bool showSuccess, bool showPending) {
-    if (_unauthorized) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.info_outline, color: AppColors.info, size: 18),
-              SizedBox(width: 6),
-              Text('Sila log masuk untuk semak status', style: TextStyle(fontWeight: FontWeight.w600)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Pembayaran diterima. Sila log masuk semula untuk melihat status aktivasi.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-        ],
-      );
-    }
-
-    if (_isLoading) {
-      return Row(
-        children: const [
-          SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          SizedBox(width: 8),
-          Text('Sedang mengaktifkan akaun anda...', style: TextStyle(fontSize: 13)),
-        ],
-      );
-    }
-
-    if (showSuccess && _active != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.check_circle, color: Colors.green, size: 18),
-              SizedBox(width: 6),
-              Text('Akaun telah diaktifkan!', style: TextStyle(fontWeight: FontWeight.w700)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Langganan: ${_active!.planName}\nTempoh: ${_active!.durationMonths} bulan',
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Redirect ke Subscription dalam $_countdown saat...',
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-        ],
-      );
-    }
-
-    if (showPending) {
-      final elapsedSeconds = (_elapsedMs / 1000).floor();
-      final progress = (elapsedSeconds / 30).clamp(0.0, 1.0);
-      
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.hourglass_top, color: AppColors.info, size: 18),
-              SizedBox(width: 6),
-              Text('Menunggu pengesahan pembayaran...', style: TextStyle(fontWeight: FontWeight.w600)),
-            ],
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[600],
+            ),
           ),
           const SizedBox(height: 12),
-          // Progress indicator
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _confirming
-                        ? 'Sedang mengesahkan pembayaran...'
-                        : 'Sistem sedang memproses pembayaran anda',
-                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                  ),
-                  Text(
-                    '${elapsedSeconds}s / 30s',
-                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: progress,
-                backgroundColor: Colors.grey[200],
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  progress > 0.8 ? AppColors.warning : AppColors.primary,
-                ),
-                minHeight: 6,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.info.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.info.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: AppColors.info, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Pembayaran anda sedang diproses. Akaun akan diaktifkan secara automatik dalam masa 1-2 minit.',
-                    style: TextStyle(fontSize: 11, color: AppColors.info),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          if (_orderNumber != null) ...[
+            _buildDetailRow('Order Number:', _orderNumber!, isMonospace: true),
+            const SizedBox(height: 8),
+          ],
+          if (_amount != null) ...[
+            _buildDetailRow('Jumlah Dibayar:', 'RM $_amount', isBold: true, isGreen: true),
+          ],
         ],
-      );
-    }
-
-    return const SizedBox.shrink();
+      ),
+    );
   }
 
-  Widget _buildActions(bool showSuccess) {
+  Widget _buildDetailRow(String label, String value, {bool isBold = false, bool isGreen = false, bool isMonospace = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey[600],
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: isGreen ? Colors.green[600] : Colors.grey[900],
+            fontFamily: isMonospace ? 'monospace' : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActivationStatus() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: _unauthorized
+          ? _buildUnauthorizedState()
+          : _isLoading
+              ? _buildLoadingState()
+              : _active != null
+                  ? _buildSuccessState()
+                  : _buildWaitingState(),
+    );
+  }
+
+  Widget _buildUnauthorizedState() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.blue[600], size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Sila Login Untuk Semak Status',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blue[600],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Pembayaran anda telah diterima. Sila login ke akaun anda untuk melihat status aktivasi.',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => _navigateTo('/login'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            child: const Text('Login Sekarang'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Row(
+      children: [
+        SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[600]!),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          'Sedang mengaktifkan akaun anda...',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuccessState() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green[600], size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Akaun Telah Diaktifkan!',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.green[600],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Langganan: ${_active!.planName}',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Tempoh: ${_active!.durationMonths} bulan',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Redirect ke Subscription dalam $_countdown saat...',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[500],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWaitingState() {
+    final elapsedSeconds = (_elapsedMs / 1000).floor();
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Menunggu pengesahan pembayaran...',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.blue[600],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Sistem sedang memproses pembayaran anda. Ini mungkin mengambil masa 1-2 minit.\nAkaun anda akan diaktifkan secara automatik. ($elapsedSeconds/30 saat)',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[500],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActions() {
     if (_unauthorized) {
-      return ElevatedButton(
-        onPressed: () => _navigateTo('/login'),
-        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-        child: const Text('Login Ke Akaun'),
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: () => _navigateTo('/login'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          child: const Text('Login Ke Akaun'),
+        ),
       );
     }
+
+    final showSuccess = _active != null && _status == _PaymentStatus.success;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -674,17 +733,19 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
           onPressed: () => _navigateTo('/subscription'),
           style: ElevatedButton.styleFrom(
             backgroundColor: showSuccess ? AppColors.primary : Colors.white,
-            foregroundColor: showSuccess ? Colors.white : AppColors.textPrimary,
-            side: showSuccess ? null : const BorderSide(color: AppColors.primary),
+            foregroundColor: showSuccess ? Colors.white : AppColors.primary,
+            side: showSuccess ? null : BorderSide(color: AppColors.primary),
+            padding: const EdgeInsets.symmetric(vertical: 12),
           ),
           child: Text(showSuccess ? 'Lihat Subscription' : 'Semak Status'),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         OutlinedButton(
           onPressed: () => _navigateTo('/home'),
           style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.textPrimary,
-            side: const BorderSide(color: Colors.grey),
+            foregroundColor: AppColors.primary,
+            side: BorderSide(color: AppColors.primary),
+            padding: const EdgeInsets.symmetric(vertical: 12),
           ),
           child: const Text('Ke Dashboard'),
         ),
@@ -695,19 +756,25 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
   Widget _buildHelpText() {
     return Column(
       children: [
-        const Text(
+        Text(
           'Jika akaun anda tidak diaktifkan dalam 5 minit, sila hubungi support.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[500],
+          ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 8),
         Text(
           'Ref: ${_orderNumber ?? 'N/A'}',
-          style: const TextStyle(fontSize: 11, color: AppColors.textHint, fontFamily: 'monospace'),
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[400],
+            fontFamily: 'monospace',
+          ),
           textAlign: TextAlign.center,
         ),
       ],
     );
   }
 }
-

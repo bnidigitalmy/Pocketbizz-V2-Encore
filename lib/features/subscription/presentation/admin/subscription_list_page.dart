@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../data/models/subscription.dart';
+import '../../data/models/subscription_plan.dart';
 import '../../data/repositories/subscription_repository_supabase.dart';
+import '../../services/subscription_service.dart';
 
 class AdminSubscriptionListPage extends StatefulWidget {
   const AdminSubscriptionListPage({super.key});
@@ -12,30 +15,74 @@ class AdminSubscriptionListPage extends StatefulWidget {
 
 class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
   final _repo = SubscriptionRepositorySupabase();
+  final _service = SubscriptionService();
   bool _isLoading = true;
+  bool _isActivating = false;
+  bool _isExtending = false;
   List<Subscription> _subscriptions = [];
+  List<SubscriptionPlan> _plans = [];
   String? _selectedStatus;
-  String? _searchUserId;
+  String _searchQuery = '';
+  Subscription? _selectedSubscription;
+
+  // Activate dialog state
+  bool _showActivateDialog = false;
+  String? _selectedUserId;
+  String _activateDuration = '3';
+  String _activateNotes = '';
+  List<Map<String, dynamic>> _availableUsers = [];
+
+  // Extend dialog state
+  bool _showExtendDialog = false;
+  String _extendDuration = '3';
+  String _extendNotes = '';
+
+  // Package prices (matching database: RM 39/month standard)
+  // Early adopter: RM 29/month (calculated dynamically)
+  static const Map<int, double> PACKAGE_PRICES = {
+    1: 39.0,   // 1 Bulan: RM 39
+    3: 117.0,  // 3 Bulan: RM 117 (no discount)
+    6: 215.0,  // 6 Bulan: RM 215 (8% discount)
+    12: 398.0, // 12 Bulan: RM 398 (15% discount)
+  };
 
   @override
   void initState() {
     super.initState();
-    _loadSubscriptions();
+    _loadData();
   }
 
-  Future<void> _loadSubscriptions() async {
+  Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final subs = await _repo.getAdminSubscriptions(
-        status: _selectedStatus,
-        userId: _searchUserId,
-        limit: 100,
-      );
+      final results = await Future.wait([
+        _repo.getAdminSubscriptions(
+          status: _selectedStatus,
+          limit: 1000,
+        ),
+        _service.getAvailablePlans(),
+      ]);
       if (mounted) {
+        final subs = results[0] as List<Subscription>;
         setState(() {
           _subscriptions = subs;
+          _plans = results[1] as List<SubscriptionPlan>;
           _isLoading = false;
         });
+        
+        // Extract unique users for dropdown
+        final userIds = <String>{};
+        final usersList = <Map<String, dynamic>>[];
+        for (final sub in subs) {
+          if (!userIds.contains(sub.userId)) {
+            userIds.add(sub.userId);
+            usersList.add({
+              'id': sub.userId,
+              'email': '${sub.userId.substring(0, 8)}...', // Placeholder - will be replaced with actual email from Edge Function
+            });
+          }
+        }
+        setState(() => _availableUsers = usersList);
       }
     } catch (e) {
       if (mounted) {
@@ -47,50 +94,127 @@ class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('All Subscriptions'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: _showFilters,
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadSubscriptions,
-          ),
-        ],
+  double _getPerMonthRate(int duration) {
+    return PACKAGE_PRICES[duration]! / duration;
+  }
+
+  int _getDiscount(int duration) {
+    // Discount percentages from database:
+    // 1 month: 0%, 3 months: 0%, 6 months: 8%, 12 months: 15%
+    switch (duration) {
+      case 1:
+        return 0;
+      case 3:
+        return 0;
+      case 6:
+        return 8;
+      case 12:
+        return 15;
+      default:
+        return 0;
+    }
+  }
+
+  List<Subscription> get _filteredSubscriptions {
+    if (_searchQuery.isEmpty) return _subscriptions;
+    final query = _searchQuery.toLowerCase();
+    return _subscriptions.where((sub) {
+      return sub.userId.toLowerCase().contains(query) ||
+          sub.planName.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  Widget _buildStatusBadge(SubscriptionStatus status, bool isExpired) {
+    Color color;
+    String text;
+    
+    if (isExpired) {
+      color = Colors.red;
+      text = 'Expired';
+    } else {
+      switch (status) {
+        case SubscriptionStatus.active:
+          color = Colors.green;
+          text = 'Active';
+          break;
+        case SubscriptionStatus.trial:
+          color = Colors.blue;
+          text = 'Trial';
+          break;
+        case SubscriptionStatus.paused:
+          color = Colors.orange;
+          text = 'Paused';
+          break;
+        case SubscriptionStatus.cancelled:
+          color = Colors.grey;
+          text = 'Canceled';
+          break;
+        default:
+          color = Colors.grey;
+          text = status.toString().split('.').last;
+      }
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _subscriptions.isEmpty
-              ? const Center(child: Text('No subscriptions found'))
-              : ListView.builder(
-                  itemCount: _subscriptions.length,
-                  itemBuilder: (context, index) {
-                    final sub = _subscriptions[index];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: ListTile(
-                        title: Text('User: ${sub.userId.substring(0, 8)}...'),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Plan: ${sub.planName}'),
-                            Text('Status: ${sub.status.toString().split('.').last}'),
-                            Text('Expires: ${DateFormat('dd MMM yyyy', 'ms').format(sub.expiresAt)}'),
-                          ],
-                        ),
-                        trailing: Text('RM ${sub.totalAmount.toStringAsFixed(2)}'),
-                        onTap: () {
-                          // TODO: Show subscription details dialog
-                        },
-                      ),
-                    );
-                  },
-                ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProviderBadge(String? provider) {
+    if (provider == null) {
+      return const Text('-', style: TextStyle(fontSize: 12));
+    }
+    
+    Color bgColor;
+    Color textColor;
+    Color borderColor;
+    String label;
+    
+    if (provider.toLowerCase().contains('manual')) {
+      bgColor = Colors.yellow.shade50;
+      textColor = Colors.yellow.shade700;
+      borderColor = Colors.yellow.shade300;
+      label = 'Manual Admin';
+    } else if (provider.toLowerCase().contains('bcl')) {
+      bgColor = Colors.blue.shade50;
+      textColor = Colors.blue.shade700;
+      borderColor = Colors.blue.shade300;
+      label = 'BCL Auto';
+    } else {
+      bgColor = Colors.grey.shade50;
+      textColor = Colors.grey.shade700;
+      borderColor = Colors.grey.shade300;
+      label = provider;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 
@@ -116,30 +240,21 @@ class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
                 setState(() => _selectedStatus = value);
               },
             ),
-            TextField(
-              decoration: const InputDecoration(labelText: 'User ID'),
-              onChanged: (value) {
-                setState(() => _searchUserId = value.isEmpty ? null : value);
-              },
-            ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () {
-              setState(() {
-                _selectedStatus = null;
-                _searchUserId = null;
-              });
+              setState(() => _selectedStatus = null);
               Navigator.pop(context);
-              _loadSubscriptions();
+              _loadData();
             },
             child: const Text('Clear'),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _loadSubscriptions();
+              _loadData();
             },
             child: const Text('Apply'),
           ),
@@ -147,5 +262,681 @@ class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
       ),
     );
   }
-}
 
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 768;
+    
+    return Stack(
+        children: [
+          Column(
+            children: [
+              // Header with search and activate button
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Search by email, name, or plan...',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[100],
+                        ),
+                        onChanged: (value) {
+                          setState(() => _searchQuery = value);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed: () => setState(() => _showActivateDialog = true),
+                      icon: const Icon(Icons.add, color: Colors.white),
+                      label: const Text('Activate New', style: TextStyle(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Stats summary
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Text(
+                      'Total: ${_subscriptions.length}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(width: 16),
+                    Text(
+                      'Active: ${_subscriptions.where((s) => s.status == SubscriptionStatus.active && s.expiresAt.isAfter(DateTime.now())).length}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.success,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 8),
+              
+              // Table
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _filteredSubscriptions.isEmpty
+                        ? const Center(child: Text('No subscriptions found'))
+                        : SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('User')),
+                                DataColumn(label: Text('Plan')),
+                                DataColumn(label: Text('Duration')),
+                                DataColumn(label: Text('Start Date')),
+                                DataColumn(label: Text('End Date')),
+                                DataColumn(label: Text('Total Paid')),
+                                DataColumn(label: Text('Source')),
+                                DataColumn(label: Text('Status')),
+                                DataColumn(label: Text('Actions')),
+                              ],
+                              rows: _filteredSubscriptions.map((sub) {
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(
+                                      sub.userId.length > 20
+                                          ? '${sub.userId.substring(0, 20)}...'
+                                          : sub.userId,
+                                      style: const TextStyle(fontSize: 12),
+                                    )),
+                                    DataCell(Text(sub.planName)),
+                                    DataCell(Text('${sub.durationMonths} month${sub.durationMonths > 1 ? 's' : ''}')),
+                                    DataCell(Text(DateFormat('dd MMM yyyy', 'ms').format(sub.startedAt ?? sub.createdAt))),
+                                    DataCell(Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(DateFormat('dd MMM yyyy', 'ms').format(sub.expiresAt)),
+                                        if (sub.status == SubscriptionStatus.expired || sub.expiresAt.isBefore(DateTime.now()))
+                                          Padding(
+                                            padding: const EdgeInsets.only(left: 4),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red,
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: const Text(
+                                                'Expired',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    )),
+                                    DataCell(Text('RM ${sub.totalAmount.toStringAsFixed(2)}')),
+                                    DataCell(_buildProviderBadge(sub.paymentGateway)),
+                                    DataCell(_buildStatusBadge(sub.status, sub.status == SubscriptionStatus.expired || sub.expiresAt.isBefore(DateTime.now()))),
+                                    DataCell(
+                                      OutlinedButton(
+                                        onPressed: sub.status == SubscriptionStatus.cancelled
+                                            ? null
+                                            : () {
+                                                setState(() {
+                                                  _selectedSubscription = sub;
+                                                  _showExtendDialog = true;
+                                                });
+                                              },
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        ),
+                                        child: const Text('Extend', style: TextStyle(fontSize: 12)),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+              ),
+            ],
+          ),
+          
+          // Dialogs
+          if (_showActivateDialog) _buildActivateDialog(),
+          if (_showExtendDialog) _buildExtendDialog(),
+        ],
+    );
+  }
+
+  Widget _buildActivateDialog() {
+    return Dialog(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 500),
+        padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Activate Manual Subscription',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Backup method untuk activate subscription bila payment BCL tak berjaya',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 24),
+              
+              // User selection
+              const Text('Select User', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _selectedUserId,
+                decoration: const InputDecoration(
+                  hintText: 'Choose user...',
+                  border: OutlineInputBorder(),
+                ),
+                items: _availableUsers.map((user) {
+                  return DropdownMenuItem(
+                    value: user['id'] as String,
+                    child: Text(
+                      user['email'] as String,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() => _selectedUserId = value);
+                },
+              ),
+              if (_availableUsers.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'No users found. Please load subscriptions first.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              
+              // Plan info
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Plan', style: TextStyle(fontWeight: FontWeight.w600)),
+                    Text('PocketBizz', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    SizedBox(height: 4),
+                    Text(
+                      'Single plan with duration-based pricing (1, 3, 6, or 12 months)',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Duration selection
+              const Text('Duration Package', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _activateDuration,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: '1', child: Text('1 Bulan - RM39')),
+                  DropdownMenuItem(value: '3', child: Text('3 Bulan - RM117')),
+                  DropdownMenuItem(value: '6', child: Text('6 Bulan - RM215 (Save 8%)')),
+                  DropdownMenuItem(value: '12', child: Text('12 Bulan - RM398 (Save 15%)')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _activateDuration = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              
+              // Price display
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Package Price',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue[900],
+                      ),
+                    ),
+                    Text(
+                      'RM ${PACKAGE_PRICES[int.parse(_activateDuration)]!.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue[700],
+                      ),
+                    ),
+                    Text(
+                      'RM ${_getPerMonthRate(int.parse(_activateDuration)).toStringAsFixed(2)}/month',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue[600],
+                      ),
+                    ),
+                    if (_getDiscount(int.parse(_activateDuration)) > 0)
+                      Text(
+                        '💰 Save ${_getDiscount(int.parse(_activateDuration))}%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Notes
+              const Text('Admin Notes (Optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              TextField(
+                decoration: const InputDecoration(
+                  hintText: 'e.g., Customer paid via bank transfer on 15/11/2025',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                onChanged: (value) => setState(() => _activateNotes = value),
+              ),
+              const SizedBox(height: 24),
+              
+              // Actions
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => setState(() => _showActivateDialog = false),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _selectedUserId == null || _isActivating
+                        ? null
+                        : () => _handleActivateSubscription(),
+                    child: _isActivating
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Activate Subscription'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExtendDialog() {
+    if (_selectedSubscription == null) return const SizedBox.shrink();
+    
+    final currentEnd = _selectedSubscription!.expiresAt;
+    final newEnd = DateTime(
+      currentEnd.year,
+      currentEnd.month + int.parse(_extendDuration),
+      currentEnd.day,
+    );
+    
+    return Dialog(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 500),
+        padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Extend Subscription',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Extend langganan untuk pelanggan yang dah bayar',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 24),
+              
+              // Current subscription info
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    _buildInfoRow('User:', _selectedSubscription!.userId.substring(0, 8) + '...'),
+                    const SizedBox(height: 8),
+                    _buildInfoRow('Current Plan:', _selectedSubscription!.planName),
+                    const SizedBox(height: 8),
+                    _buildInfoRow(
+                      'Current End Date:',
+                      DateFormat('dd MMM yyyy', 'ms').format(currentEnd),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Duration selection
+              const Text('Extension Package', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _extendDuration,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: '1', child: Text('1 Bulan - RM39')),
+                  DropdownMenuItem(value: '3', child: Text('3 Bulan - RM117')),
+                  DropdownMenuItem(value: '6', child: Text('6 Bulan - RM215 (Save 8%)')),
+                  DropdownMenuItem(value: '12', child: Text('12 Bulan - RM398 (Save 15%)')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _extendDuration = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              
+              // Price display
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Extension Price',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue[900],
+                      ),
+                    ),
+                    Text(
+                      'RM ${PACKAGE_PRICES[int.parse(_extendDuration)]!.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue[700],
+                      ),
+                    ),
+                    Text(
+                      'RM ${_getPerMonthRate(int.parse(_extendDuration)).toStringAsFixed(2)}/month',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue[600],
+                      ),
+                    ),
+                    if (_getDiscount(int.parse(_extendDuration)) > 0)
+                      Text(
+                        '💰 Save ${_getDiscount(int.parse(_extendDuration))}%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // New end date
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'New End Date',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green[900],
+                      ),
+                    ),
+                    Text(
+                      DateFormat('dd MMM yyyy', 'ms').format(newEnd),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green[700],
+                      ),
+                    ),
+                    Text(
+                      'Extended by ${_extendDuration} month${int.parse(_extendDuration) > 1 ? 's' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Notes
+              const Text('Admin Notes (Optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              TextField(
+                decoration: const InputDecoration(
+                  hintText: 'e.g., Payment received via bank transfer',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                onChanged: (value) => setState(() => _extendNotes = value),
+              ),
+              const SizedBox(height: 24),
+              
+              // Actions
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _showExtendDialog = false;
+                        _selectedSubscription = null;
+                      });
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _isExtending
+                        ? null
+                        : () => _handleExtendSubscription(),
+                    child: _isExtending
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Extend Subscription'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[700],
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleActivateSubscription() async {
+    if (_selectedUserId == null || _plans.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a user and ensure plans are loaded')),
+      );
+      return;
+    }
+
+    setState(() => _isActivating = true);
+    try {
+      final plan = _plans.first; // Use first plan (PocketBizz)
+      await _service.manualActivateSubscription(
+        userId: _selectedUserId!,
+        planId: plan.id,
+        durationMonths: int.parse(_activateDuration),
+        notes: _activateNotes.isEmpty ? null : _activateNotes,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Subscription activated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {
+          _showActivateDialog = false;
+          _selectedUserId = null;
+          _activateDuration = '3';
+          _activateNotes = '';
+        });
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to activate: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isActivating = false);
+      }
+    }
+  }
+
+  Future<void> _handleExtendSubscription() async {
+    if (_selectedSubscription == null) return;
+
+    setState(() => _isExtending = true);
+    try {
+      await _service.extendSubscription(
+        subscriptionId: _selectedSubscription!.id,
+        extensionMonths: int.parse(_extendDuration),
+        notes: _extendNotes.isEmpty ? null : _extendNotes,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Subscription extended successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {
+          _showExtendDialog = false;
+          _selectedSubscription = null;
+          _extendDuration = '3';
+          _extendNotes = '';
+        });
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to extend: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isExtending = false);
+      }
+    }
+  }
+}

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/supabase/supabase_client.dart';
+import '../../data/models/subscription.dart';
 import '../../data/repositories/subscription_repository_supabase.dart';
 import '../../services/subscription_service.dart';
-import 'widgets/revenue_chart.dart';
-import 'widgets/subscription_stats.dart';
-import 'widgets/payment_analytics.dart';
 import 'subscription_list_page.dart';
+import 'user_management_page.dart';
 
 /// Admin Dashboard for Subscription Management
 /// Shows overview, revenue, analytics, and subscription management
@@ -21,17 +22,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   final _subscriptionRepo = SubscriptionRepositorySupabase();
   
   bool _isLoading = true;
-  DateTime _selectedStartDate = DateTime.now().subtract(const Duration(days: 30));
-  DateTime _selectedEndDate = DateTime.now();
   
-  // Stats
+  // User Stats
+  int _totalUsers = 0;
+  int _paidUsers = 0;
+  int _activeTrial = 0;
+  int _expiredTrial = 0;
+  
+  // Subscription Stats
   int _totalSubscriptions = 0;
   int _activeSubscriptions = 0;
-  double _totalRevenue = 0.0;
-  double _monthlyRevenue = 0.0;
-  int _totalPayments = 0;
-  double _successRate = 0.0;
-
+  
+  // Revenue Stats
+  double _mrr = 0.0; // Monthly Recurring Revenue
+  
   @override
   void initState() {
     super.initState();
@@ -42,9 +46,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     setState(() => _isLoading = true);
     try {
       await Future.wait([
+        _loadUserStats(),
         _loadSubscriptionStats(),
         _loadRevenueStats(),
-        _loadPaymentStats(),
       ]);
     } catch (e) {
       if (mounted) {
@@ -59,10 +63,38 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
   }
 
+  Future<void> _loadUserStats() async {
+    try {
+      // Get all users from auth.users (via Supabase Admin API)
+      // For now, we'll count from subscriptions table
+      final allSubs = await _subscriptionRepo.getAdminSubscriptions(
+        limit: 1000,
+      );
+      
+      // Get unique user IDs
+      final userIds = allSubs.map((s) => s.userId).toSet();
+      _totalUsers = userIds.length;
+      
+      // Count paid users (have active subscription)
+      final paidUserIds = allSubs
+          .where((s) => s.status.toString().contains('active'))
+          .map((s) => s.userId)
+          .toSet();
+      _paidUsers = paidUserIds.length;
+      
+      // Count trial users
+      final trialSubs = allSubs.where((s) => s.status.toString().contains('trial'));
+      _activeTrial = trialSubs.where((s) => s.status != SubscriptionStatus.expired && s.expiresAt.isAfter(DateTime.now())).length;
+      _expiredTrial = trialSubs.where((s) => s.status == SubscriptionStatus.expired || s.expiresAt.isBefore(DateTime.now())).length;
+    } catch (e) {
+      debugPrint('Error loading user stats: $e');
+    }
+  }
+
   Future<void> _loadSubscriptionStats() async {
     final stats = await _subscriptionRepo.getAdminSubscriptionStats(
-      startDate: _selectedStartDate,
-      endDate: _selectedEndDate,
+      startDate: DateTime.now().subtract(const Duration(days: 365)),
+      endDate: DateTime.now(),
     );
     if (mounted) {
       setState(() {
@@ -74,132 +106,289 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
 
   Future<void> _loadRevenueStats() async {
     final revenue = await _subscriptionRepo.getAdminRevenueStats(
-      startDate: _selectedStartDate,
-      endDate: _selectedEndDate,
+      startDate: DateTime.now().subtract(const Duration(days: 365)),
+      endDate: DateTime.now(),
     );
     if (mounted) {
       setState(() {
-        _totalRevenue = (revenue['total'] as num).toDouble();
-        _monthlyRevenue = (revenue['monthly'] as num).toDouble();
+        _mrr = (revenue['monthly'] as num).toDouble();
       });
-    }
-  }
-
-  Future<void> _loadPaymentStats() async {
-    final stats = await _subscriptionRepo.getAdminPaymentStats(
-      startDate: _selectedStartDate,
-      endDate: _selectedEndDate,
-    );
-    if (mounted) {
-      setState(() {
-        _totalPayments = stats['total'] as int;
-        _successRate = (stats['success_rate'] as num).toDouble();
-      });
-    }
-  }
-
-  Future<void> _selectDateRange() async {
-    final result = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      initialDateRange: DateTimeRange(
-        start: _selectedStartDate,
-        end: _selectedEndDate,
-      ),
-    );
-    if (result != null) {
-      setState(() {
-        _selectedStartDate = result.start;
-        _selectedEndDate = result.end;
-      });
-      _loadDashboardData();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Dashboard - Subscriptions'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.date_range),
-            onPressed: _selectDateRange,
-            tooltip: 'Select Date Range',
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadDashboardData,
-            tooltip: 'Refresh',
-          ),
-        ],
+    final isMobile = MediaQuery.of(context).size.width < 768;
+    
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    return RefreshIndicator(
+      onRefresh: _loadDashboardData,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.all(isMobile ? 16 : 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            _buildHeader(),
+            const SizedBox(height: 24),
+            
+            // Stats Cards
+            _buildStatsCards(isMobile),
+            const SizedBox(height: 24),
+            
+            // Additional Info Cards
+            _buildInfoCards(isMobile),
+            const SizedBox(height: 24),
+            
+            // Quick Actions
+            _buildQuickActions(),
+          ],
+        ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+    );
+  }
+
+  Widget _buildHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Admin Dashboard',
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Pantau prestasi sistem dan pengguna PocketBizz',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsCards(bool isMobile) {
+    final statCards = [
+      _StatCard(
+        title: 'Jumlah Pengguna',
+        value: '$_totalUsers',
+        description: '$_paidUsers pengguna berbayar',
+        icon: Icons.people,
+        color: Colors.blue,
+      ),
+      _StatCard(
+        title: 'Trial Aktif',
+        value: '$_activeTrial',
+        description: '$_expiredTrial trial tamat tempoh',
+        icon: Icons.verified_user,
+        color: Colors.green,
+      ),
+      _StatCard(
+        title: 'Subscription Aktif',
+        value: '$_activeSubscriptions',
+        description: '$_totalSubscriptions jumlah subscription',
+        icon: Icons.trending_up,
+        color: Colors.purple,
+      ),
+      _StatCard(
+        title: 'MRR (Bulanan)',
+        value: 'RM ${_mrr.toStringAsFixed(2)}',
+        description: 'Pendapatan berulang bulanan',
+        icon: Icons.attach_money,
+        color: Colors.amber,
+      ),
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isMobile ? 2 : 4,
+        childAspectRatio: isMobile ? 1.3 : 1.5,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: statCards.length,
+      itemBuilder: (context, index) => statCards[index],
+    );
+  }
+
+  Widget _buildInfoCards(bool isMobile) {
+    if (isMobile) {
+      return Column(
+        children: [
+          Card(
+            child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Date Range Display
-                  _buildDateRangeDisplay(),
+                  const Text(
+                    'Status Pengguna',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pecahan status pengguna semasa',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
                   const SizedBox(height: 16),
-                  
-                  // Stats Cards
-                  SubscriptionStats(
-                    totalSubscriptions: _totalSubscriptions,
-                    activeSubscriptions: _activeSubscriptions,
-                    totalRevenue: _totalRevenue,
-                    monthlyRevenue: _monthlyRevenue,
-                    totalPayments: _totalPayments,
-                    successRate: _successRate,
-                  ),
-                  const SizedBox(height: 24),
-                  
-                  // Revenue Chart
-                  RevenueChart(
-                    startDate: _selectedStartDate,
-                    endDate: _selectedEndDate,
-                  ),
-                  const SizedBox(height: 24),
-                  
-                  // Payment Analytics
-                  PaymentAnalytics(
-                    startDate: _selectedStartDate,
-                    endDate: _selectedEndDate,
-                  ),
-                  const SizedBox(height: 24),
-                  
-                  // Quick Actions
-                  _buildQuickActions(),
+                  _buildInfoRow('Pengguna Berbayar', '$_paidUsers', Colors.green),
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Trial Aktif', '$_activeTrial', Colors.blue),
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Trial Tamat Tempoh', '$_expiredTrial', Colors.orange),
+                  const Divider(height: 24),
+                  _buildInfoRow('Jumlah', '$_totalUsers', null, isBold: true),
                 ],
               ),
             ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Subscription',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Statistik langganan pengguna',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildInfoRow('Subscription Aktif', '$_activeSubscriptions', Colors.green),
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Jumlah Subscription', '$_totalSubscriptions', null),
+                  const Divider(height: 24),
+                  _buildInfoRow('MRR', 'RM ${_mrr.toStringAsFixed(2)}', AppColors.primary, isBold: true),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    
+    return Row(
+      children: [
+        Expanded(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Status Pengguna',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pecahan status pengguna semasa',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildInfoRow('Pengguna Berbayar', '$_paidUsers', Colors.green),
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Trial Aktif', '$_activeTrial', Colors.blue),
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Trial Tamat Tempoh', '$_expiredTrial', Colors.orange),
+                  const Divider(height: 24),
+                  _buildInfoRow('Jumlah', '$_totalUsers', null, isBold: true),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Subscription',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Statistik langganan pengguna',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildInfoRow('Subscription Aktif', '$_activeSubscriptions', Colors.green),
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Jumlah Subscription', '$_totalSubscriptions', null),
+                  const Divider(height: 24),
+                  _buildInfoRow('MRR', 'RM ${_mrr.toStringAsFixed(2)}', AppColors.primary, isBold: true),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildDateRangeDisplay() {
-    final format = DateFormat('dd MMM yyyy', 'ms');
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            const Icon(Icons.calendar_today, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              '${format.format(_selectedStartDate)} - ${format.format(_selectedEndDate)}',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: _selectDateRange,
-              child: const Text('Change'),
-            ),
-          ],
+  Widget _buildInfoRow(String label, String value, Color? color, {bool isBold = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey[700],
+          ),
         ),
-      ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isBold ? 16 : 14,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: color ?? Colors.black87,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
     );
   }
 
@@ -212,7 +401,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           children: [
             const Text(
               'Quick Actions',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -221,25 +413,44 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
               children: [
                 ElevatedButton.icon(
                   onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AdminSubscriptionListPage(),
-                      ),
+                    // Navigation handled by AdminLayout
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Use sidebar navigation to switch pages')),
                     );
                   },
-                  icon: const Icon(Icons.list),
-                  label: const Text('View All Subscriptions'),
+                  icon: const Icon(Icons.people, color: Colors.white),
+                  label: const Text('Manage Users', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
                 ElevatedButton.icon(
                   onPressed: () {
-                    // TODO: Export to CSV
+                    // Navigation handled by AdminLayout
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Use sidebar navigation to switch pages')),
+                    );
+                  },
+                  icon: const Icon(Icons.credit_card, color: Colors.white),
+                  label: const Text('Subscriptions', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Export feature coming soon')),
                     );
                   },
-                  icon: const Icon(Icons.download),
-                  label: const Text('Export Data'),
+                  icon: Icon(Icons.download, color: AppColors.primary),
+                  label: Text('Export Data', style: TextStyle(color: AppColors.primary)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: BorderSide(color: AppColors.primary),
+                  ),
                 ),
               ],
             ),
@@ -250,3 +461,63 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   }
 }
 
+class _StatCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final String description;
+  final IconData icon;
+  final Color color;
+
+  const _StatCard({
+    required this.title,
+    required this.value,
+    required this.description,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Icon(icon, color: color, size: 20),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              description,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -605,6 +605,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         _planLimits!.transactions.usagePercentage >= 80;
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
@@ -616,6 +617,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         ),
         const SizedBox(height: 12),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: _buildLimitItem('Produk', _planLimits!.products)),
             const SizedBox(width: 12),
@@ -657,9 +659,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
   Widget _buildLimitItem(String label, LimitInfo limit) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               _getLimitIcon(label),
@@ -667,11 +671,14 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               color: AppColors.textSecondary,
             ),
             const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -883,6 +890,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Row(
@@ -1078,6 +1086,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           style: const TextStyle(fontSize: 12),
         ),
         trailing: Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -1214,6 +1223,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           ],
         ),
         subtitle: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 4),

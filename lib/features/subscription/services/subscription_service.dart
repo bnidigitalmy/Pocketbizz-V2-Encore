@@ -340,5 +340,52 @@ class SubscriptionService {
       fullRefund: fullRefund,
     );
   }
+
+  // ============================================================================
+  // ADMIN MANUAL OPERATIONS
+  // ============================================================================
+
+  /// Manually activate subscription for a user (admin only)
+  Future<Subscription> manualActivateSubscription({
+    required String userId,
+    required String planId,
+    required int durationMonths,
+    String? notes,
+  }) async {
+    return _repo.manualActivateSubscription(
+      userId: userId,
+      planId: planId,
+      durationMonths: durationMonths,
+      notes: notes,
+    );
+  }
+
+  /// Extend subscription expiry date (admin only)
+  Future<Subscription> extendSubscription({
+    required String subscriptionId,
+    required int extensionMonths,
+    String? notes,
+  }) async {
+    return _repo.extendSubscription(
+      subscriptionId: subscriptionId,
+      extensionMonths: extensionMonths,
+      notes: notes,
+    );
+  }
+
+  /// Add manual payment record (admin only)
+  Future<Map<String, dynamic>> addManualPayment({
+    required String userId,
+    required double amount,
+    required String paymentMethod,
+    String? notes,
+  }) async {
+    return _repo.addManualPayment(
+      userId: userId,
+      amount: amount,
+      paymentMethod: paymentMethod,
+      notes: notes,
+    );
+  }
 }
 

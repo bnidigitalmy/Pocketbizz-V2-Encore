@@ -41,7 +41,7 @@ import 'features/drive_sync/presentation/drive_sync_page.dart';
 import 'features/documents/presentation/documents_page.dart';
 import 'features/subscription/presentation/subscription_page.dart';
 import 'features/subscription/presentation/payment_success_page.dart';
-import 'features/subscription/presentation/admin/admin_dashboard_page.dart';
+import 'features/subscription/presentation/admin/widgets/admin_layout.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -127,7 +127,9 @@ class PocketBizzApp extends StatelessWidget {
         '/documents': (context) => const DocumentsPage(),
         '/subscription': (context) => const SubscriptionPage(),
         '/payment-success': (context) => const PaymentSuccessPage(),
-        '/admin/subscriptions': (context) => const AdminDashboardPage(),
+        '/admin/dashboard': (context) => const AdminLayout(initialRoute: '/admin/dashboard'),
+        '/admin/subscriptions': (context) => const AdminLayout(initialRoute: '/admin/subscriptions'),
+        '/admin/users': (context) => const AdminLayout(initialRoute: '/admin/users'),
       },
     );
   }

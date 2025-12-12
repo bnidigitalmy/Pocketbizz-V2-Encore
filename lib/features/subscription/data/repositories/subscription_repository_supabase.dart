@@ -437,17 +437,28 @@ class SubscriptionRepositorySupabase {
     }
   }
 
-  /// Count stock items (ingredients) for user
+  /// Count stock items for user
+  /// Uses stock_items table (not ingredients) as that's where actual stock is managed
   Future<int> _countStockItems(String userId) async {
     try {
       final response = await _supabase
-          .from('ingredients')
+          .from('stock_items')
           .select('id')
-          .eq('business_owner_id', userId);
+          .eq('business_owner_id', userId)
+          .eq('is_archived', false);
 
       return (response as List).length;
     } catch (e) {
-      return 0;
+      // If stock_items table doesn't exist yet, fallback to ingredients for backward compatibility
+      try {
+        final fallbackResponse = await _supabase
+            .from('ingredients')
+            .select('id')
+            .eq('business_owner_id', userId);
+        return (fallbackResponse as List).length;
+      } catch (_) {
+        return 0;
+      }
     }
   }
 
@@ -1832,6 +1843,239 @@ class SubscriptionRepositorySupabase {
       };
     } catch (e) {
       throw Exception('Failed to process refund: $e');
+    }
+  }
+
+  // ============================================================================
+  // ADMIN MANUAL OPERATIONS
+  // ============================================================================
+
+  /// Manually activate subscription for a user (admin only)
+  /// Used as backup when payment gateway fails
+  Future<Subscription> manualActivateSubscription({
+    required String userId,
+    required String planId,
+    required int durationMonths,
+    String? notes,
+  }) async {
+    try {
+      // Get plan details
+      final planResponse = await _supabase
+          .from('subscription_plans')
+          .select()
+          .eq('id', planId)
+          .single();
+
+      final plan = SubscriptionPlan.fromJson(planResponse as Map<String, dynamic>);
+
+      // Check early adopter status for the user
+      final earlyAdopterResp = await _supabase
+          .from('early_adopters')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      final isEarlyAdopter = earlyAdopterResp != null;
+      final pricePerMonth = isEarlyAdopter ? 29.0 : 39.0;
+      
+      // Calculate total based on duration
+      final calculatedTotal = isEarlyAdopter
+          ? plan.getPriceForEarlyAdopter() * (durationMonths / plan.durationMonths)
+          : plan.totalPrice * (durationMonths / plan.durationMonths);
+      
+      final discountApplied = (pricePerMonth * durationMonths) - calculatedTotal;
+
+      // Calculate expiry date
+      final now = DateTime.now();
+      final expiresAt = now.add(Duration(days: durationMonths * 30));
+      final graceUntil = expiresAt.add(const Duration(days: 7));
+      final nowIso = now.toIso8601String();
+
+      // Create subscription
+      final response = await _supabase
+          .from('subscriptions')
+          .insert({
+            'user_id': userId,
+            'plan_id': planId,
+            'price_per_month': pricePerMonth,
+            'total_amount': calculatedTotal,
+            'discount_applied': discountApplied,
+            'is_early_adopter': isEarlyAdopter,
+            'status': 'active',
+            'started_at': nowIso,
+            'expires_at': expiresAt.toIso8601String(),
+            'grace_until': graceUntil.toIso8601String(),
+            'payment_gateway': 'manual',
+            'payment_reference': 'MANUAL-${DateTime.now().millisecondsSinceEpoch}',
+            'payment_status': 'completed',
+            'payment_completed_at': nowIso,
+            'auto_renew': false,
+            'notes': notes,
+          })
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''')
+          .single();
+
+      final json = response as Map<String, dynamic>;
+      final planData = json['subscription_plans'] as Map<String, dynamic>?;
+      
+      if (planData != null) {
+        json['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
+        json['duration_months'] = durationMonths;
+      }
+
+      // Create payment record
+      await _supabase.from('subscription_payments').insert({
+        'subscription_id': json['id'] as String,
+        'user_id': userId,
+        'amount': calculatedTotal,
+        'currency': 'MYR',
+        'payment_gateway': 'manual',
+        'payment_reference': json['payment_reference'] as String,
+        'status': 'completed',
+        'paid_at': nowIso,
+        'notes': notes,
+      });
+
+      return Subscription.fromJson(json);
+    } catch (e) {
+      throw Exception('Failed to manually activate subscription: $e');
+    }
+  }
+
+  /// Extend subscription expiry date (admin only)
+  Future<Subscription> extendSubscription({
+    required String subscriptionId,
+    required int extensionMonths,
+    String? notes,
+  }) async {
+    try {
+      // Fetch subscription
+      final subResp = await _supabase
+          .from('subscriptions')
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''')
+          .eq('id', subscriptionId)
+          .maybeSingle();
+
+      if (subResp == null) {
+        throw Exception('Subscription not found');
+      }
+
+      final subData = subResp as Map<String, dynamic>;
+      final currentExpiresAt = DateTime.parse(subData['expires_at'] as String);
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+
+      // Calculate new expiry date
+      final newExpiresAt = currentExpiresAt.add(Duration(days: extensionMonths * 30));
+      final newGraceUntil = newExpiresAt.add(const Duration(days: 7));
+
+      // Calculate extension price
+      final planData = subData['subscription_plans'] as Map<String, dynamic>?;
+      final pricePerMonth = (subData['price_per_month'] as num).toDouble();
+      final extensionAmount = pricePerMonth * extensionMonths;
+
+      // Update subscription
+      final updated = await _supabase
+          .from('subscriptions')
+          .update({
+            'expires_at': newExpiresAt.toIso8601String(),
+            'grace_until': newGraceUntil.toIso8601String(),
+            'updated_at': nowIso,
+          })
+          .eq('id', subscriptionId)
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''')
+          .single();
+
+      final json = updated as Map<String, dynamic>;
+      final updatedPlanData = json['subscription_plans'] as Map<String, dynamic>?;
+      if (updatedPlanData != null) {
+        json['plan_name'] = updatedPlanData['name'] as String? ?? 'PocketBizz Pro';
+      }
+
+      // Create payment record for extension
+      await _supabase.from('subscription_payments').insert({
+        'subscription_id': subscriptionId,
+        'user_id': subData['user_id'] as String,
+        'amount': extensionAmount,
+        'currency': 'MYR',
+        'payment_gateway': 'manual',
+        'payment_reference': 'EXTEND-${DateTime.now().millisecondsSinceEpoch}',
+        'status': 'completed',
+        'paid_at': nowIso,
+        'notes': notes ?? 'Subscription extended by $extensionMonths months',
+      });
+
+      return Subscription.fromJson(json);
+    } catch (e) {
+      throw Exception('Failed to extend subscription: $e');
+    }
+  }
+
+  /// Add manual payment record (admin only)
+  Future<Map<String, dynamic>> addManualPayment({
+    required String userId,
+    required double amount,
+    required String paymentMethod,
+    String? notes,
+  }) async {
+    try {
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+
+      // Get user's current subscription
+      final subResp = await _supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('user_id', userId)
+          .inFilter('status', ['trial', 'active', 'grace'])
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      final subscriptionId = subResp != null ? (subResp as Map<String, dynamic>)['id'] as String : null;
+
+      // Create payment record
+      final paymentResp = await _supabase
+          .from('subscription_payments')
+          .insert({
+            'subscription_id': subscriptionId,
+            'user_id': userId,
+            'amount': amount,
+            'currency': 'MYR',
+            'payment_gateway': paymentMethod,
+            'payment_reference': 'MANUAL-PAY-${DateTime.now().millisecondsSinceEpoch}',
+            'status': 'completed',
+            'paid_at': nowIso,
+            'notes': notes,
+          })
+          .select()
+          .single();
+
+      return {
+        'success': true,
+        'payment_id': (paymentResp as Map<String, dynamic>)['id'] as String,
+        'message': 'Manual payment recorded successfully',
+      };
+    } catch (e) {
+      throw Exception('Failed to add manual payment: $e');
     }
   }
 }
