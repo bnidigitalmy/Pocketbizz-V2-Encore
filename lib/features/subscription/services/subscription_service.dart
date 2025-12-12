@@ -241,5 +241,104 @@ class SubscriptionService {
       status: SubscriptionStatus.active, // Keep active, just stop renewal
     );
   }
+
+  // ============================================================================
+  // ADMIN METHODS
+  // ============================================================================
+
+  /// Get admin subscription statistics
+  Future<Map<String, dynamic>> getAdminSubscriptionStats({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    return _repo.getAdminSubscriptionStats(
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
+
+  /// Get admin revenue statistics
+  Future<Map<String, dynamic>> getAdminRevenueStats({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    return _repo.getAdminRevenueStats(
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
+
+  /// Get admin payment statistics
+  Future<Map<String, dynamic>> getAdminPaymentStats({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    return _repo.getAdminPaymentStats(
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
+
+  /// Get all subscriptions for admin
+  Future<List<Subscription>> getAdminSubscriptions({
+    String? status,
+    String? userId,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    return _repo.getAdminSubscriptions(
+      status: status,
+      userId: userId,
+      startDate: startDate,
+      endDate: endDate,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  // ============================================================================
+  // PAUSE/RESUME METHODS
+  // ============================================================================
+
+  /// Pause a subscription
+  Future<Subscription> pauseSubscription({
+    required String subscriptionId,
+    required int daysToPause,
+    String? reason,
+    DateTime? pausedUntil,
+  }) async {
+    return _repo.pauseSubscription(
+      subscriptionId: subscriptionId,
+      daysToPause: daysToPause,
+      reason: reason,
+      pausedUntil: pausedUntil,
+    );
+  }
+
+  /// Resume a paused subscription
+  Future<Subscription> resumeSubscription(String subscriptionId) async {
+    return _repo.resumeSubscription(subscriptionId);
+  }
+
+  // ============================================================================
+  // REFUND METHODS
+  // ============================================================================
+
+  /// Process refund for a payment
+  Future<Map<String, dynamic>> processRefund({
+    required String paymentId,
+    required double refundAmount,
+    required String reason,
+    bool fullRefund = false,
+  }) async {
+    return _repo.processRefund(
+      paymentId: paymentId,
+      refundAmount: refundAmount,
+      reason: reason,
+      fullRefund: fullRefund,
+    );
+  }
 }
 

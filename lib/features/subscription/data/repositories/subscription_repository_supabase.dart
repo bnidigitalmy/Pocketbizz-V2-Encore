@@ -580,14 +580,57 @@ class SubscriptionRepositorySupabase {
         throw Exception('User not authenticated');
       }
 
-      // Fetch pending subscription by payment_reference
-      final pending = await _supabase
+      // First try: Fetch pending subscription by payment_reference (our order_id)
+      var pending = await _supabase
           .from('subscriptions')
           .select()
           .eq('payment_reference', orderId)
           .eq('user_id', userId)
           .eq('status', 'pending_payment')
           .maybeSingle();
+
+      // Fallback: If not found by payment_reference, try to find latest pending payment for this user
+      // This handles cases where BCL.my generates its own order number
+      if (pending == null) {
+        print('⚠️ Payment reference $orderId not found, trying to find latest pending payment for user');
+        
+        // Find latest pending subscription for this user
+        final latestPending = await _supabase
+            .from('subscriptions')
+            .select()
+            .eq('user_id', userId)
+            .eq('status', 'pending_payment')
+            .order('created_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+        
+        if (latestPending != null) {
+          pending = latestPending;
+          print('✅ Found latest pending subscription: ${pending['id']}');
+          
+          // Update payment_reference to match BCL.my order number for future reference
+          await _supabase
+              .from('subscriptions')
+              .update({
+                'payment_reference': orderId,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', pending['id'] as String);
+          
+          // Also update payment record if exists
+          final paymentUpdate = await _supabase
+              .from('subscription_payments')
+              .update({
+                'payment_reference': orderId,
+                'gateway_transaction_id': gatewayTransactionId,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('subscription_id', pending['id'] as String)
+              .eq('status', 'pending')
+              .order('created_at', ascending: false)
+              .limit(1);
+        }
+      }
 
       if (pending == null) {
         throw Exception('No pending subscription found for order $orderId');
@@ -636,18 +679,45 @@ class SubscriptionRepositorySupabase {
           .single();
 
       // Update payment record to completed and get payment ID
-      final paymentUpdate = await _supabase
+      // Try by payment_reference first, then by subscription_id if not found
+      var paymentUpdate = await _supabase
           .from('subscription_payments')
           .update({
             'status': 'completed',
             'paid_at': now.toIso8601String(),
             'gateway_transaction_id': gatewayTransactionId,
+            'payment_reference': orderId, // Update to BCL.my order number
           })
           .eq('payment_reference', orderId)
           .select('id')
-          .single();
+          .maybeSingle();
+      
+      // Fallback: Find by subscription_id if not found by payment_reference
+      if (paymentUpdate == null) {
+        paymentUpdate = await _supabase
+            .from('subscription_payments')
+            .update({
+              'status': 'completed',
+              'paid_at': now.toIso8601String(),
+              'gateway_transaction_id': gatewayTransactionId,
+              'payment_reference': orderId, // Update to BCL.my order number
+            })
+            .eq('subscription_id', pendingData['id'] as String)
+            .eq('status', 'pending')
+            .order('created_at', ascending: false)
+            .limit(1)
+            .select('id')
+            .maybeSingle();
+      }
+      
+      if (paymentUpdate == null) {
+        throw Exception('No pending payment found to update');
+      }
 
-      final paymentId = (paymentUpdate as Map<String, dynamic>)['id'] as String;
+      final paymentId = (paymentUpdate as Map<String, dynamic>?)?['id'] as String?;
+      if (paymentId == null) {
+        throw Exception('Failed to get payment ID after update');
+      }
 
       final json = updated as Map<String, dynamic>;
       final planData = json['subscription_plans'] as Map<String, dynamic>?;
@@ -1337,6 +1407,432 @@ class SubscriptionRepositorySupabase {
     String? reason,
   }) {
     return _sendPaymentFailedEmail(payment: payment, reason: reason);
+  }
+
+  // ============================================================================
+  // ADMIN METHODS
+  // ============================================================================
+
+  /// Get subscription statistics for admin dashboard
+  Future<Map<String, dynamic>> getAdminSubscriptionStats({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      final startIso = startDate.toIso8601String();
+      final endIso = endDate.toIso8601String();
+
+      // Total subscriptions
+      final totalResp = await _supabase
+          .from('subscriptions')
+          .select('id')
+          .gte('created_at', startIso)
+          .lte('created_at', endIso);
+
+      // Active subscriptions
+      final activeResp = await _supabase
+          .from('subscriptions')
+          .select('id')
+          .inFilter('status', ['trial', 'active', 'grace'])
+          .gte('created_at', startIso)
+          .lte('created_at', endIso);
+
+      return {
+        'total': (totalResp as List).length,
+        'active': (activeResp as List).length,
+      };
+    } catch (e) {
+      throw Exception('Failed to get subscription stats: $e');
+    }
+  }
+
+  /// Get revenue statistics for admin dashboard
+  Future<Map<String, dynamic>> getAdminRevenueStats({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      final startIso = startDate.toIso8601String();
+      final endIso = endDate.toIso8601String();
+
+      // Total revenue (completed payments)
+      final totalResp = await _supabase
+          .from('subscription_payments')
+          .select('amount')
+          .eq('status', 'completed')
+          .gte('paid_at', startIso)
+          .lte('paid_at', endIso);
+
+      double total = 0.0;
+      if (totalResp is List) {
+        for (final payment in totalResp) {
+          total += ((payment as Map<String, dynamic>)['amount'] as num).toDouble();
+        }
+      }
+
+      // Monthly revenue (current month)
+      final now = DateTime.now();
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(now.year, now.month + 1, 0);
+
+      final monthlyResp = await _supabase
+          .from('subscription_payments')
+          .select('amount')
+          .eq('status', 'completed')
+          .gte('paid_at', monthStart.toIso8601String())
+          .lte('paid_at', monthEnd.toIso8601String());
+
+      double monthly = 0.0;
+      if (monthlyResp is List) {
+        for (final payment in monthlyResp) {
+          monthly += ((payment as Map<String, dynamic>)['amount'] as num).toDouble();
+        }
+      }
+
+      return {
+        'total': total,
+        'monthly': monthly,
+      };
+    } catch (e) {
+      throw Exception('Failed to get revenue stats: $e');
+    }
+  }
+
+  /// Get payment statistics for admin dashboard
+  Future<Map<String, dynamic>> getAdminPaymentStats({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      final startIso = startDate.toIso8601String();
+      final endIso = endDate.toIso8601String();
+
+      // Total payments
+      final totalResp = await _supabase
+          .from('subscription_payments')
+          .select('id, status')
+          .gte('created_at', startIso)
+          .lte('created_at', endIso);
+
+      final total = (totalResp as List).length;
+
+      // Successful payments
+      final successResp = await _supabase
+          .from('subscription_payments')
+          .select('id')
+          .eq('status', 'completed')
+          .gte('created_at', startIso)
+          .lte('created_at', endIso);
+
+      final success = (successResp as List).length;
+      final successRate = total > 0 ? (success / total * 100) : 0.0;
+
+      return {
+        'total': total,
+        'success': success,
+        'failed': total - success,
+        'success_rate': successRate,
+      };
+    } catch (e) {
+      throw Exception('Failed to get payment stats: $e');
+    }
+  }
+
+  /// Get all subscriptions for admin (with filters)
+  Future<List<Subscription>> getAdminSubscriptions({
+    String? status,
+    String? userId,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    try {
+      var query = _supabase
+          .from('subscriptions')
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''');
+
+      if (status != null) {
+        query = query.eq('status', status);
+      }
+      if (userId != null) {
+        query = query.eq('user_id', userId);
+      }
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
+
+      return (response as List)
+          .map((json) {
+            final data = json as Map<String, dynamic>;
+            final planData = data['subscription_plans'] as Map<String, dynamic>?;
+            if (planData != null) {
+              data['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
+              data['duration_months'] = planData['duration_months'] as int? ?? 1;
+            }
+            return Subscription.fromJson(data);
+          })
+          .toList();
+    } catch (e) {
+      throw Exception('Failed to get admin subscriptions: $e');
+    }
+  }
+
+  // ============================================================================
+  // PAUSE/RESUME METHODS
+  // ============================================================================
+
+  /// Pause a subscription (extends expiry date by pause duration)
+  Future<Subscription> pauseSubscription({
+    required String subscriptionId,
+    required int daysToPause,
+    String? reason,
+    DateTime? pausedUntil,
+  }) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Fetch subscription
+      final subResp = await _supabase
+          .from('subscriptions')
+          .select()
+          .eq('id', subscriptionId)
+          .maybeSingle();
+
+      if (subResp == null) {
+        throw Exception('Subscription not found');
+      }
+
+      final subData = subResp as Map<String, dynamic>;
+      final currentExpiresAt = DateTime.parse(subData['expires_at'] as String);
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+
+      // Calculate new expiry date (extend by pause duration)
+      final newExpiresAt = currentExpiresAt.add(Duration(days: daysToPause));
+      final pauseUntil = pausedUntil ?? now.add(Duration(days: daysToPause));
+
+      // Update subscription
+      final updated = await _supabase
+          .from('subscriptions')
+          .update({
+            'is_paused': true,
+            'paused_at': nowIso,
+            'paused_until': pauseUntil.toIso8601String(),
+            'pause_reason': reason,
+            'paused_days': daysToPause,
+            'expires_at': newExpiresAt.toIso8601String(),
+            'status': 'paused',
+            'updated_at': nowIso,
+          })
+          .eq('id', subscriptionId)
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''')
+          .single();
+
+      final json = updated as Map<String, dynamic>;
+      final planData = json['subscription_plans'] as Map<String, dynamic>?;
+      if (planData != null) {
+        json['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
+        json['duration_months'] = planData['duration_months'] as int? ?? 1;
+      }
+
+      return Subscription.fromJson(json);
+    } catch (e) {
+      throw Exception('Failed to pause subscription: $e');
+    }
+  }
+
+  /// Resume a paused subscription
+  Future<Subscription> resumeSubscription(String subscriptionId) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Fetch subscription
+      final subResp = await _supabase
+          .from('subscriptions')
+          .select()
+          .eq('id', subscriptionId)
+          .maybeSingle();
+
+      if (subResp == null) {
+        throw Exception('Subscription not found');
+      }
+
+      final subData = subResp as Map<String, dynamic>;
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+      final pausedDays = subData['paused_days'] as int? ?? 0;
+      final originalExpiresAt = DateTime.parse(subData['expires_at'] as String);
+
+      // Calculate remaining days (subtract paused days from expiry)
+      // Since we already extended expiry when pausing, we just need to reactivate
+      final status = originalExpiresAt.isAfter(now) ? 'active' : 'expired';
+
+      // Update subscription
+      final updated = await _supabase
+          .from('subscriptions')
+          .update({
+            'is_paused': false,
+            'paused_at': null,
+            'paused_until': null,
+            'pause_reason': null,
+            'status': status,
+            'updated_at': nowIso,
+          })
+          .eq('id', subscriptionId)
+          .select('''
+            *,
+            subscription_plans:plan_id (
+              name,
+              duration_months
+            )
+          ''')
+          .single();
+
+      final json = updated as Map<String, dynamic>;
+      final planData = json['subscription_plans'] as Map<String, dynamic>?;
+      if (planData != null) {
+        json['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
+        json['duration_months'] = planData['duration_months'] as int? ?? 1;
+      }
+
+      return Subscription.fromJson(json);
+    } catch (e) {
+      throw Exception('Failed to resume subscription: $e');
+    }
+  }
+
+  // ============================================================================
+  // REFUND METHODS
+  // ============================================================================
+
+  /// Process refund for a payment
+  Future<Map<String, dynamic>> processRefund({
+    required String paymentId,
+    required double refundAmount,
+    required String reason,
+    bool fullRefund = false,
+  }) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Fetch payment
+      final paymentResp = await _supabase
+          .from('subscription_payments')
+          .select('''
+            *,
+            subscriptions:subscription_id (
+              id,
+              user_id,
+              payment_gateway
+            )
+          ''')
+          .eq('id', paymentId)
+          .maybeSingle();
+
+      if (paymentResp == null) {
+        throw Exception('Payment not found');
+      }
+
+      final paymentData = paymentResp as Map<String, dynamic>;
+      final subscriptionData = paymentData['subscriptions'] as Map<String, dynamic>?;
+      final subscriptionId = subscriptionData?['id'] as String?;
+      final gateway = paymentData['payment_gateway'] as String? ?? 'bcl_my';
+      final amount = (paymentData['amount'] as num).toDouble();
+      final finalRefundAmount = fullRefund ? amount : refundAmount;
+
+      if (finalRefundAmount > amount) {
+        throw Exception('Refund amount cannot exceed payment amount');
+      }
+
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+      final refundRef = 'REF-${DateTime.now().millisecondsSinceEpoch}';
+
+      // TODO: Call BCL.my refund API or gateway refund endpoint
+      // For now, we'll just update the database
+      // In production, you need to integrate with BCL.my refund API
+
+      // Update payment record
+      await _supabase
+          .from('subscription_payments')
+          .update({
+            'status': fullRefund ? 'refunded' : 'refunding',
+            'refunded_amount': finalRefundAmount,
+            'refunded_at': nowIso,
+            'refund_reason': reason,
+            'refund_reference': refundRef,
+            'updated_at': nowIso,
+          })
+          .eq('id', paymentId);
+
+      // Create refund record
+      final refundResp = await _supabase
+          .from('subscription_refunds')
+          .insert({
+            'payment_id': paymentId,
+            'subscription_id': subscriptionId,
+            'user_id': subscriptionData?['user_id'] as String?,
+            'refund_amount': finalRefundAmount,
+            'currency': 'MYR',
+            'refund_reason': reason,
+            'payment_gateway': gateway,
+            'refund_reference': refundRef,
+            'status': 'completed', // TODO: Set to 'processing' if async
+            'processed_by': userId,
+          })
+          .select()
+          .single();
+
+      // If full refund, update subscription status
+      if (fullRefund && subscriptionId != null) {
+        await _supabase
+            .from('subscriptions')
+            .update({
+              'status': 'cancelled',
+              'payment_status': 'refunded',
+              'updated_at': nowIso,
+            })
+            .eq('id', subscriptionId);
+      }
+
+      return {
+        'success': true,
+        'refund_id': (refundResp as Map<String, dynamic>)['id'] as String,
+        'refund_reference': refundRef,
+        'refund_amount': finalRefundAmount,
+      };
+    } catch (e) {
+      throw Exception('Failed to process refund: $e');
+    }
   }
 }
 

@@ -551,6 +551,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         color = AppColors.warning;
         text = 'Menunggu Bayaran';
         break;
+      case SubscriptionStatus.paused:
+        color = Colors.blue;
+        text = 'Ditangguhkan';
+        break;
     }
 
     return Container(

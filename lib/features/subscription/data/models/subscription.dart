@@ -32,6 +32,13 @@ class Subscription {
   final PaymentStatus? paymentStatus;
   final DateTime? paymentCompletedAt;
   
+  // Pause
+  final bool isPaused;
+  final DateTime? pausedAt;
+  final DateTime? pausedUntil;
+  final String? pauseReason;
+  final int pausedDays;
+  
   // Metadata
   final bool autoRenew;
   final String? notes;
@@ -60,6 +67,11 @@ class Subscription {
     this.paymentReference,
     this.paymentStatus,
     this.paymentCompletedAt,
+    this.isPaused = false,
+    this.pausedAt,
+    this.pausedUntil,
+    this.pauseReason,
+    this.pausedDays = 0,
     required this.autoRenew,
     this.notes,
     required this.createdAt,
@@ -102,6 +114,15 @@ class Subscription {
       paymentCompletedAt: json['payment_completed_at'] != null
           ? DateTime.parse(json['payment_completed_at'] as String)
           : null,
+      isPaused: json['is_paused'] as bool? ?? false,
+      pausedAt: json['paused_at'] != null
+          ? DateTime.parse(json['paused_at'] as String)
+          : null,
+      pausedUntil: json['paused_until'] != null
+          ? DateTime.parse(json['paused_until'] as String)
+          : null,
+      pauseReason: json['pause_reason'] as String?,
+      pausedDays: json['paused_days'] as int? ?? 0,
       autoRenew: json['auto_renew'] as bool? ?? true,
       notes: json['notes'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
@@ -131,6 +152,11 @@ class Subscription {
       'payment_reference': paymentReference,
       'payment_status': paymentStatus?.toString().split('.').last,
       'payment_completed_at': paymentCompletedAt?.toIso8601String(),
+      'is_paused': isPaused,
+      'paused_at': pausedAt?.toIso8601String(),
+      'paused_until': pausedUntil?.toIso8601String(),
+      'pause_reason': pauseReason,
+      'paused_days': pausedDays,
       'auto_renew': autoRenew,
       'notes': notes,
       'created_at': createdAt.toIso8601String(),
@@ -152,6 +178,8 @@ class Subscription {
         return SubscriptionStatus.cancelled;
       case 'pending_payment':
         return SubscriptionStatus.pendingPayment;
+      case 'paused':
+        return SubscriptionStatus.paused;
       default:
         return SubscriptionStatus.expired;
     }
@@ -172,8 +200,8 @@ class Subscription {
     }
   }
 
-  /// Check if subscription is active (trial or paid)
-  bool get isActive => status == SubscriptionStatus.trial || status == SubscriptionStatus.active || status == SubscriptionStatus.grace;
+  /// Check if subscription is active (trial or paid, but not paused)
+  bool get isActive => (status == SubscriptionStatus.trial || status == SubscriptionStatus.active || status == SubscriptionStatus.grace) && !isPaused;
 
   /// Check if on trial
   bool get isOnTrial => status == SubscriptionStatus.trial;
@@ -217,6 +245,7 @@ enum SubscriptionStatus {
   expired,
   cancelled,
   pendingPayment,
+  paused,
 }
 
 enum PaymentStatus {
