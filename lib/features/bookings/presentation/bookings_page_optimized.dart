@@ -1480,8 +1480,11 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
                   'notes': notesController.text.isEmpty ? null : notesController.text,
                 });
               },
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
-              child: const Text('Simpan'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Rekod Pembayaran'),
             ),
           ],
         ),
@@ -1537,7 +1540,8 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
 
           if (generateReceipt == true && mounted) {
             final payment = paymentResult['payment'] as Map<String, dynamic>;
-            await _generatePaymentReceipt(booking, payment);
+            // Use updatedBooking instead of booking to get correct total_paid
+            await _generatePaymentReceipt(updatedBooking, payment);
           }
         }
       } catch (e) {
