@@ -103,6 +103,7 @@ CREATE TRIGGER trigger_update_booking_payments_updated_at
     EXECUTE FUNCTION update_booking_payments_updated_at();
 
 -- Add total_paid column to bookings table (calculated from booking_payments)
+-- Must be done BEFORE creating trigger function
 ALTER TABLE bookings
 ADD COLUMN IF NOT EXISTS total_paid NUMERIC(12,2) DEFAULT 0;
 
@@ -110,6 +111,7 @@ ADD COLUMN IF NOT EXISTS total_paid NUMERIC(12,2) DEFAULT 0;
 CREATE OR REPLACE FUNCTION update_booking_total_paid()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Update total_paid in bookings table (not booking_payments!)
     UPDATE bookings
     SET total_paid = (
         SELECT COALESCE(SUM(payment_amount), 0)
