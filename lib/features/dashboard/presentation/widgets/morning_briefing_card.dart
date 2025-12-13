@@ -1,18 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/date_time_helper.dart';
 
 /// Morning Briefing Card
 /// Personalized greeting based on time of day
 /// Shows motivational message for SME owners
-class MorningBriefingCard extends StatelessWidget {
+/// Includes real-time clock
+class MorningBriefingCard extends StatefulWidget {
   final String userName;
-  final int hour;
 
   const MorningBriefingCard({
     super.key,
     required this.userName,
-    required this.hour,
   });
+
+  @override
+  State<MorningBriefingCard> createState() => _MorningBriefingCardState();
+}
+
+class _MorningBriefingCardState extends State<MorningBriefingCard> {
+  late DateTime _currentTime;
+  late int _hour;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateTime();
+    // Update clock every second
+    _startClock();
+  }
+
+  void _updateTime() {
+    setState(() {
+      _currentTime = DateTimeHelper.now();
+      _hour = _currentTime.hour;
+    });
+  }
+
+  void _startClock() {
+    // Update every second
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        _updateTime();
+        _startClock();
+      }
+    });
+  }
 
   String _getGreeting() {
     if (hour < 12) {
@@ -79,7 +113,7 @@ class MorningBriefingCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  userName,
+                  widget.userName,
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -120,16 +154,40 @@ class MorningBriefingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 16),
+          // Real-time clock widget
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
-              shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(
-              _getTimeIcon(),
-              color: Colors.white,
-              size: 40,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _getTimeIcon(),
+                  color: Colors.white,
+                  size: 32,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  DateFormat('hh:mm:ss', 'ms').format(_currentTime),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+                Text(
+                  DateFormat('a', 'ms').format(_currentTime),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withOpacity(0.9),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

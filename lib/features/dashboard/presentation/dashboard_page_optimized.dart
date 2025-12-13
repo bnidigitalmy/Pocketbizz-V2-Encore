@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/repositories/bookings_repository_supabase.dart';
 import '../../../data/repositories/sales_repository_supabase.dart';
 import '../../../data/repositories/purchase_order_repository_supabase.dart'
@@ -300,7 +301,7 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
               ),
             ),
             Text(
-              DateFormat('EEEE, d MMMM yyyy', 'ms_MY').format(now),
+              DateFormat('EEEE, d MMMM yyyy', 'ms').format(DateTimeHelper.now()),
               style: const TextStyle(
                 fontSize: 12,
                 color: AppColors.textSecondary,
@@ -332,7 +333,6 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
                   // Morning Briefing Card
                   MorningBriefingCard(
                     userName: user?.email?.split('@').first ?? 'SME Owner',
-                    hour: hour,
                   ),
 
                   const SizedBox(height: 20),
