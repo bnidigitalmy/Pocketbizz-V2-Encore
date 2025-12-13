@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'dart:html' as html;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +8,7 @@ import '../../../core/supabase/supabase_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/bookings_repository_supabase.dart';
 import '../../../data/repositories/business_profile_repository_supabase.dart';
+import '../../../data/models/business_profile.dart';
 import '../../../core/utils/booking_pdf_generator.dart';
 import '../../drive_sync/utils/drive_sync_helper.dart';
 import '../../../core/services/document_storage_service.dart';
@@ -29,11 +30,27 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
   List<Booking> _filteredBookings = [];
   bool _loading = false;
   String _statusTab = 'all'; // all | pending | confirmed | completed
+  BusinessProfile? _businessProfile;
 
   @override
   void initState() {
     super.initState();
     _loadBookings();
+    _loadBusinessProfile();
+  }
+
+  Future<void> _loadBusinessProfile() async {
+    try {
+      final profile = await _businessProfileRepo.getBusinessProfile();
+      if (mounted) {
+        setState(() {
+          _businessProfile = profile;
+        });
+      }
+    } catch (e) {
+      // Business profile is optional, continue without it
+      debugPrint('Failed to load business profile: $e');
+    }
   }
 
   Future<void> _loadBookings() async {
@@ -712,6 +729,14 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
 
   Future<void> _shareWhatsApp(Booking booking) async {
     try {
+      // Ensure business profile is loaded
+      if (_businessProfile == null) {
+        await _loadBusinessProfile();
+      }
+
+      // Use business profile name or default to PocketBizz
+      final businessName = _businessProfile?.businessName ?? 'PocketBizz';
+
       final itemsTotal = booking.items?.fold<double>(
             0.0,
             (sum, item) => sum + item.subtotal,
@@ -719,7 +744,7 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
           0.0;
 
       var message = '*TEMPAHAN INVOICE*%0A%0A';
-      message += '*PocketBizz*%0A';
+      message += '*$businessName*%0A';
       message += 'No. Tempahan: ${booking.bookingNumber}%0A%0A';
 
       message += '*PELANGGAN*%0A';
