@@ -1160,7 +1160,9 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -1180,8 +1182,7 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
                               ),
                             ),
                           ),
-                          if (item.retailPrice != null) ...[
-                            const SizedBox(width: 8),
+                          if (item.retailPrice != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
@@ -1199,7 +1200,6 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
                                 ),
                               ),
                             ),
-                          ],
                         ],
                       ),
                     ],

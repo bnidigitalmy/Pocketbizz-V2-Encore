@@ -120,8 +120,8 @@ class BookingItem {
 /// Bookings repository using Supabase
 class BookingsRepositorySupabase {
   /// Generate booking number (B0001, B0002, etc.)
-  /// Uses max booking number to avoid race conditions
-  Future<String> _generateBookingNumber() async {
+  /// Uses max booking number with timestamp suffix to avoid race conditions
+  Future<String> _generateBookingNumber({int retryAttempt = 0}) async {
     // Get the max booking number to avoid race conditions
     final result = await supabase
         .from('bookings')
@@ -134,11 +134,12 @@ class BookingsRepositorySupabase {
     
     if (result != null && result['booking_number'] != null) {
       final lastNumber = result['booking_number'] as String;
-      // Extract number from format like "B0001"
+      // Extract number from format like "B0001" (ignore any suffix after number)
       if (lastNumber.startsWith('B')) {
         try {
-          final numberStr = lastNumber.substring(1);
-          final lastNum = int.parse(numberStr);
+          // Extract just the numeric part (before any dash or suffix)
+          final numberPart = lastNumber.substring(1).split('-')[0].split('_')[0];
+          final lastNum = int.parse(numberPart);
           nextNumber = lastNum + 1;
         } catch (e) {
           // If parsing fails, fall back to count
@@ -148,7 +149,15 @@ class BookingsRepositorySupabase {
       }
     }
 
-    return 'B${nextNumber.toString().padLeft(4, '0')}';
+    // Add timestamp suffix for retry attempts to ensure uniqueness
+    final baseNumber = 'B${nextNumber.toString().padLeft(4, '0')}';
+    if (retryAttempt > 0) {
+      // Add timestamp suffix for uniqueness on retries
+      final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+      return '${baseNumber}_$timestamp';
+    }
+    
+    return baseNumber;
   }
 
   /// Create a new booking
@@ -190,13 +199,13 @@ class BookingsRepositorySupabase {
 
     // Insert booking with retry logic for duplicate booking_number
     Booking? booking;
-    int maxRetries = 5;
+    int maxRetries = 10; // Increased retries
     int retryCount = 0;
     
     while (booking == null && retryCount < maxRetries) {
       try {
-        // Generate booking number
-        final bookingNumber = await _generateBookingNumber();
+        // Generate booking number with retry attempt for uniqueness
+        final bookingNumber = await _generateBookingNumber(retryAttempt: retryCount);
 
         // Insert booking
         final bookingData = await supabase.from('bookings').insert({
@@ -232,8 +241,10 @@ class BookingsRepositorySupabase {
           if (retryCount >= maxRetries) {
             throw Exception('Failed to create booking: Unable to generate unique booking number after $maxRetries attempts. Please try again.');
           }
-          // Wait a bit before retry to avoid immediate collision
-          await Future.delayed(Duration(milliseconds: 100 * retryCount));
+          // Wait with exponential backoff + random jitter to avoid immediate collision
+          final baseDelay = 200 * (1 << retryCount); // Exponential: 200ms, 400ms, 800ms, etc.
+          final jitter = (baseDelay * 0.2 * (retryCount % 3)); // Random jitter
+          await Future.delayed(Duration(milliseconds: (baseDelay + jitter).round()));
         } else {
           // Other errors, throw immediately
           throw Exception('Failed to create booking: $e');
@@ -246,7 +257,7 @@ class BookingsRepositorySupabase {
     }
 
     // At this point, booking is guaranteed to be non-null
-    final finalBooking = booking!;
+    final finalBooking = booking;
 
     // Insert booking items
     final bookingItems = items.map((item) => {
