@@ -31,6 +31,12 @@ CREATE INDEX IF NOT EXISTS idx_booking_payments_number ON booking_payments (paym
 -- Enable RLS
 ALTER TABLE booking_payments ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist (for idempotency)
+DROP POLICY IF EXISTS booking_payments_select_own ON booking_payments;
+DROP POLICY IF EXISTS booking_payments_insert_own ON booking_payments;
+DROP POLICY IF EXISTS booking_payments_update_own ON booking_payments;
+DROP POLICY IF EXISTS booking_payments_delete_own ON booking_payments;
+
 -- RLS Policies
 CREATE POLICY booking_payments_select_own ON booking_payments
     FOR SELECT
@@ -83,6 +89,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop trigger if exists (for idempotency)
+DROP TRIGGER IF EXISTS trigger_set_booking_payment_number ON booking_payments;
+
 CREATE TRIGGER trigger_set_booking_payment_number
     BEFORE INSERT ON booking_payments
     FOR EACH ROW
@@ -96,6 +105,9 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Drop trigger if exists (for idempotency)
+DROP TRIGGER IF EXISTS trigger_update_booking_payments_updated_at ON booking_payments;
 
 CREATE TRIGGER trigger_update_booking_payments_updated_at
     BEFORE UPDATE ON booking_payments
