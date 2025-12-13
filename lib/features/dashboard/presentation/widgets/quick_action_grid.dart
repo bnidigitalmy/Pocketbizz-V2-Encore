@@ -40,7 +40,7 @@ class QuickActionGrid extends StatelessWidget {
               label: 'Stok Gudang',
               icon: Icons.warehouse_rounded,
               color: AppColors.primary,
-              onTap: () => Navigator.of(context).pushNamed('/inventory'),
+              onTap: () => Navigator.of(context).pushNamed('/stock'),
             ),
             QuickActionCard(
               label: 'Rancang Produksi',
