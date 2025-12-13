@@ -1,5 +1,6 @@
 import '../../core/supabase/supabase_client.dart';
 import '../models/delivery.dart';
+import 'production_repository_supabase.dart';
 
 /// Deliveries Repository for Supabase
 class DeliveriesRepositorySupabase {
@@ -160,18 +161,40 @@ class DeliveriesRepositorySupabase {
 
     final deliveryId = deliveryResponse['id'] as String;
 
-    // Create delivery items
+    // Consume stock from production batches for each item
+    final productionRepo = ProductionRepository(supabase);
+    
+    // Create delivery items and consume stock
     for (var item in items) {
       final quantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
       final unitPrice = (item['unit_price'] as num?)?.toDouble() ?? 0.0;
       final rejectedQty = (item['rejected_qty'] as num?)?.toDouble() ?? 0.0;
-      // Calculate total price based on ACCEPTED quantity only (quantity - rejectedQty)
+      final productId = item['product_id'] as String;
+      
+      // Calculate ACCEPTED quantity (quantity - rejectedQty)
+      // Only accepted items reduce stock - rejected items stay in stock
       final acceptedQty = quantity - rejectedQty;
       final totalPrice = acceptedQty * unitPrice;
 
+      // Consume stock from production batches (FIFO) for ACCEPTED quantity only
+      if (acceptedQty > 0) {
+        try {
+          await productionRepo.consumeStock(
+            productId: productId,
+            quantity: acceptedQty,
+            note: 'Delivery #$deliveryId - Accepted: $acceptedQty, Rejected: $rejectedQty',
+          );
+        } catch (e) {
+          // If stock consumption fails, rollback delivery creation
+          await supabase.from('vendor_deliveries').delete().eq('id', deliveryId);
+          throw Exception('Failed to consume stock for ${item['product_name']}: $e');
+        }
+      }
+
+      // Create delivery item
       await supabase.from('vendor_delivery_items').insert({
         'delivery_id': deliveryId,
-        'product_id': item['product_id'] as String,
+        'product_id': productId,
         'product_name': item['product_name'] as String,
         'quantity': quantity,
         'unit_price': unitPrice,

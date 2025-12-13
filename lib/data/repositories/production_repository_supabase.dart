@@ -442,6 +442,80 @@ class ProductionRepository {
     }
   }
 
+  /// Consume stock from production batches using FIFO
+  /// Returns list of batch updates with consumed quantities
+  Future<List<Map<String, dynamic>>> consumeStock({
+    required String productId,
+    required double quantity,
+    String? note,
+  }) async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Get batches ordered by batch_date (FIFO - oldest first)
+      final batches = await getAllBatches(
+        productId: productId,
+        onlyWithRemaining: true,
+      );
+
+      if (batches.isEmpty) {
+        throw Exception('No stock available for product');
+      }
+
+      // Calculate total available
+      final totalAvailable = batches.fold<double>(
+        0.0,
+        (sum, batch) => sum + batch.remainingQty,
+      );
+
+      if (totalAvailable < quantity) {
+        throw Exception(
+          'Insufficient stock. Available: $totalAvailable, Required: $quantity'
+        );
+      }
+
+      // Consume from batches using FIFO
+      double remainingToConsume = quantity;
+      final updates = <Map<String, dynamic>>[];
+
+      for (final batch in batches) {
+        if (remainingToConsume <= 0) break;
+
+        final available = batch.remainingQty;
+        if (available <= 0) continue;
+
+        final toConsume = available < remainingToConsume 
+            ? available 
+            : remainingToConsume;
+        
+        final newRemaining = available - toConsume;
+        remainingToConsume -= toConsume;
+
+        // Update batch
+        await _supabase
+            .from('production_batches')
+            .update({
+              'remaining_qty': newRemaining,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', batch.id);
+
+        updates.add({
+          'batchId': batch.id,
+          'consumed': toConsume,
+          'remaining': newRemaining,
+        });
+      }
+
+      return updates;
+    } catch (e) {
+      throw Exception('Failed to consume stock: $e');
+    }
+  }
+
   /// Get expired batches
   Future<List<ProductionBatch>> getExpiredBatches() async {
     try {
