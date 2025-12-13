@@ -18,6 +18,7 @@ class Booking {
   final double? discountAmount;
   final double totalAmount;
   final double? depositAmount;
+  final double totalPaid; // Total amount paid (sum of all payments)
   final String status;
   final DateTime createdAt;
   final List<BookingItem>? items;
@@ -39,6 +40,7 @@ class Booking {
     this.discountAmount,
     required this.totalAmount,
     this.depositAmount,
+    this.totalPaid = 0.0,
     required this.status,
     required this.createdAt,
     this.items,
@@ -62,6 +64,7 @@ class Booking {
       discountAmount: json['discount_amount']?.toDouble(),
       totalAmount: json['total_amount']?.toDouble() ?? 0.0,
       depositAmount: json['deposit_amount']?.toDouble(),
+      totalPaid: json['total_paid']?.toDouble() ?? 0.0,
       status: json['status'] ?? 'pending',
       createdAt: DateTime.parse(json['created_at']),
       items: json['booking_items'] != null
@@ -359,6 +362,70 @@ class BookingsRepositorySupabase {
     }
 
     return stats;
+  }
+
+  /// Record a payment for a booking
+  Future<Map<String, dynamic>> recordPayment({
+    required String bookingId,
+    required double amount,
+    required String paymentMethod,
+    String? paymentReference,
+    String? notes,
+  }) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
+    // Validate amount
+    if (amount <= 0) {
+      throw Exception('Payment amount must be greater than 0');
+    }
+
+    // Get booking to check total
+    final booking = await getBooking(bookingId);
+    final remainingBalance = booking.totalAmount - booking.totalPaid;
+    
+    if (amount > remainingBalance) {
+      throw Exception('Payment amount (RM${amount.toStringAsFixed(2)}) exceeds remaining balance (RM${remainingBalance.toStringAsFixed(2)})');
+    }
+
+    // Insert payment
+    final paymentData = await supabase
+        .from('booking_payments')
+        .insert({
+          'business_owner_id': userId,
+          'booking_id': bookingId,
+          'payment_date': DateTime.now().toIso8601String().split('T')[0],
+          'payment_time': DateTime.now().toIso8601String().split('T')[1].split('.')[0],
+          'payment_amount': amount,
+          'payment_method': paymentMethod,
+          'payment_reference': paymentReference,
+          'notes': notes,
+        })
+        .select()
+        .single();
+
+    // Get updated booking with new total_paid
+    final updatedBooking = await getBooking(bookingId);
+
+    return {
+      'payment': paymentData,
+      'booking': updatedBooking,
+      'remaining_balance': updatedBooking.totalAmount - updatedBooking.totalPaid,
+    };
+  }
+
+  /// Get payment history for a booking
+  Future<List<Map<String, dynamic>>> getPaymentHistory(String bookingId) async {
+    final payments = await supabase
+        .from('booking_payments')
+        .select('*')
+        .eq('booking_id', bookingId)
+        .order('payment_date', ascending: false)
+        .order('payment_time', ascending: false);
+
+    return (payments as List).map((p) => p as Map<String, dynamic>).toList();
   }
 }
 

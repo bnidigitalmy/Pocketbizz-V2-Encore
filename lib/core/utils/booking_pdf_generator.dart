@@ -4,6 +4,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:intl/intl.dart';
 import '../../data/repositories/bookings_repository_supabase.dart';
 import '../../data/models/business_profile.dart';
+import 'date_time_helper.dart';
 
 /// PDF Generator for Booking Invoices
 class BookingPDFGenerator {
@@ -597,6 +598,273 @@ class BookingPDFGenerator {
     final timestamp = date.millisecondsSinceEpoch;
     final sequence = (timestamp % 10000).toString().padLeft(4, '0');
     return 'INV-$yearMonth-$sequence';
+  }
+
+  /// Generate Payment Receipt PDF
+  static Future<Uint8List> generatePaymentReceipt({
+    required Booking booking,
+    required Map<String, dynamic> payment,
+    BusinessProfile? businessProfile,
+  }) async {
+    final pdf = pw.Document();
+    final date = DateTimeHelper.formatDate(DateTime.now(), pattern: 'dd MMMM yyyy');
+    final paymentDate = payment['payment_date'] != null
+        ? DateTimeHelper.formatDate(DateTime.parse(payment['payment_date']), pattern: 'dd MMMM yyyy')
+        : date;
+    final paymentTime = payment['payment_time'] != null
+        ? payment['payment_time'] as String
+        : DateTimeHelper.formatTime(DateTime.now(), pattern: 'hh:mm a');
+    
+    final paymentNumber = payment['payment_number'] as String? ?? 'N/A';
+    final paymentAmount = (payment['payment_amount'] as num).toDouble();
+    final paymentMethod = payment['payment_method'] as String? ?? 'cash';
+    final paymentReference = payment['payment_reference'] as String?;
+    final notes = payment['notes'] as String?;
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(40),
+        build: (pw.Context context) {
+          return [
+            // Header with Business Info
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        businessProfile?.businessName ?? 'Resit Pembayaran',
+                        style: pw.TextStyle(
+                          fontSize: 22,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.blueGrey800,
+                        ),
+                      ),
+                      if (businessProfile?.tagline != null) ...[
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          businessProfile!.tagline!,
+                          style: pw.TextStyle(
+                            fontSize: 11,
+                            color: PdfColors.grey700,
+                            fontStyle: pw.FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                      if (businessProfile?.address != null) ...[
+                        pw.SizedBox(height: 8),
+                        pw.Text(
+                          businessProfile!.address!,
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                      ],
+                      if (businessProfile?.phone != null) ...[
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          'Tel: ${businessProfile!.phone}',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Container(
+                      padding: const pw.EdgeInsets.all(12),
+                      decoration: pw.BoxDecoration(
+                        color: PdfColors.green700,
+                        borderRadius: pw.BorderRadius.circular(4),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text(
+                            'RESIT PEMBAYARAN',
+                            style: pw.TextStyle(
+                              fontSize: 14,
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColors.white,
+                            ),
+                          ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                            paymentNumber,
+                            style: pw.TextStyle(
+                              fontSize: 12,
+                              color: PdfColors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            
+            pw.SizedBox(height: 30),
+            
+            // Payment Details
+            pw.Container(
+              padding: const pw.EdgeInsets.all(16),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Maklumat Pembayaran',
+                    style: pw.TextStyle(
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.blueGrey800,
+                    ),
+                  ),
+                  pw.SizedBox(height: 12),
+                  _buildReceiptRow('No. Tempahan', booking.bookingNumber),
+                  _buildReceiptRow('Pelanggan', booking.customerName),
+                  _buildReceiptRow('Tarikh Pembayaran', '$paymentDate, $paymentTime'),
+                  _buildReceiptRow('Jumlah Pembayaran', 'RM${paymentAmount.toStringAsFixed(2)}', isHighlight: true),
+                  _buildReceiptRow('Kaedah Pembayaran', _formatPaymentMethod(paymentMethod)),
+                  if (paymentReference != null && paymentReference.isNotEmpty)
+                    _buildReceiptRow('Rujukan', paymentReference),
+                  if (notes != null && notes.isNotEmpty) ...[
+                    pw.SizedBox(height: 8),
+                    pw.Text(
+                      'Nota: $notes',
+                      style: const pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            
+            pw.SizedBox(height: 20),
+            
+            // Booking Summary
+            pw.Container(
+              padding: const pw.EdgeInsets.all(16),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey300),
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Ringkasan Tempahan',
+                    style: pw.TextStyle(
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.blueGrey800,
+                    ),
+                  ),
+                  pw.SizedBox(height: 12),
+                  _buildReceiptRow('Jumlah Tempahan', 'RM${booking.totalAmount.toStringAsFixed(2)}'),
+                  if (booking.depositAmount != null && booking.depositAmount! > 0)
+                    _buildReceiptRow('Deposit', 'RM${booking.depositAmount!.toStringAsFixed(2)}'),
+                  _buildReceiptRow('Jumlah Dibayar', 'RM${booking.totalPaid.toStringAsFixed(2)}'),
+                  pw.Divider(),
+                  _buildReceiptRow(
+                    'Baki',
+                    'RM${(booking.totalAmount - booking.totalPaid).toStringAsFixed(2)}',
+                    isHighlight: true,
+                  ),
+                ],
+              ),
+            ),
+            
+            pw.SizedBox(height: 30),
+            
+            // Footer
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                children: [
+                  pw.Text(
+                    'Terima kasih atas pembayaran anda!',
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.blueGrey800,
+                    ),
+                    textAlign: pw.TextAlign.center,
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    'Sila simpan resit ini sebagai rekod pembayaran.',
+                    style: pw.TextStyle(
+                      fontSize: 10,
+                      color: PdfColors.grey600,
+                    ),
+                    textAlign: pw.TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ];
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static pw.Widget _buildReceiptRow(String label, String value, {bool isHighlight = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 4),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(
+            label,
+            style: pw.TextStyle(
+              fontSize: 11,
+              color: PdfColors.grey700,
+            ),
+          ),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: isHighlight ? 12 : 11,
+              fontWeight: isHighlight ? pw.FontWeight.bold : pw.FontWeight.normal,
+              color: isHighlight ? PdfColors.blueGrey800 : PdfColors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatPaymentMethod(String method) {
+    switch (method.toLowerCase()) {
+      case 'cash':
+        return 'Tunai';
+      case 'bank_transfer':
+        return 'Bank Transfer';
+      case 'cheque':
+        return 'Cek';
+      case 'credit_card':
+        return 'Kad Kredit';
+      case 'e_wallet':
+        return 'E-Wallet';
+      case 'other':
+        return 'Lain-lain';
+      default:
+        return method;
+    }
   }
 }
 

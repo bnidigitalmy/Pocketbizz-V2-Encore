@@ -1027,16 +1027,123 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
                             isHighlight: true,
                             isLarge: true,
                           ),
-                          if (fullBooking.depositAmount != null && fullBooking.depositAmount! > 0) ...[
+                          if (fullBooking.depositAmount != null && fullBooking.depositAmount! > 0)
                             _buildDetailRow('Deposit', 'RM${fullBooking.depositAmount!.toStringAsFixed(2)}'),
-                            _buildDetailRow(
-                              'Baki',
-                              'RM${(fullBooking.totalAmount - fullBooking.depositAmount!).toStringAsFixed(2)}',
-                              isHighlight: true,
-                            ),
-                          ],
+                          _buildDetailRow('Jumlah Dibayar', 'RM${fullBooking.totalPaid.toStringAsFixed(2)}'),
+                          _buildDetailRow(
+                            'Baki',
+                            'RM${(fullBooking.totalAmount - fullBooking.totalPaid).toStringAsFixed(2)}',
+                            isHighlight: true,
+                          ),
                         ],
                       ),
+                      
+                      // Payment History Section
+                      if (fullBooking.totalPaid > 0) ...[
+                        const SizedBox(height: 24),
+                        FutureBuilder<List<Map<String, dynamic>>>(
+                          future: _repo.getPaymentHistory(fullBooking.id),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            
+                            final payments = snapshot.data ?? [];
+                            
+                            return _buildDetailSection(
+                              'Sejarah Pembayaran',
+                              Icons.payment,
+                              [
+                                ...payments.map((payment) {
+                                  final paymentDate = payment['payment_date'] != null
+                                      ? DateTimeHelper.formatDate(DateTime.parse(payment['payment_date']), pattern: 'dd MMM yyyy')
+                                      : 'N/A';
+                                  final paymentTime = payment['payment_time'] != null
+                                      ? payment['payment_time'] as String
+                                      : '';
+                                  final paymentMethod = payment['payment_method'] as String? ?? 'cash';
+                                  final paymentAmount = (payment['payment_amount'] as num).toDouble();
+                                  final paymentNumber = payment['payment_number'] as String? ?? 'N/A';
+                                  
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    paymentNumber,
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    '$paymentDate${paymentTime.isNotEmpty ? ', $paymentTime' : ''}',
+                                                    style: TextStyle(
+                                                      color: Colors.grey[600],
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    _formatPaymentMethod(paymentMethod),
+                                                    style: TextStyle(
+                                                      color: Colors.grey[600],
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Column(
+                                              crossAxisAlignment: CrossAxisAlignment.end,
+                                              children: [
+                                                Text(
+                                                  'RM${paymentAmount.toStringAsFixed(2)}',
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                    color: AppColors.success,
+                                                  ),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(Icons.receipt, size: 20),
+                                                  color: AppColors.primary,
+                                                  onPressed: () => _generatePaymentReceipt(fullBooking, payment),
+                                                  tooltip: 'Generate Resit',
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                        if (payment['notes'] != null && (payment['notes'] as String).isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Nota: ${payment['notes']}',
+                                            style: TextStyle(
+                                              color: Colors.grey[600],
+                                              fontSize: 11,
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
                       
                       if (fullBooking.notes != null && fullBooking.notes!.isNotEmpty) ...[
                         const SizedBox(height: 24),
@@ -1059,6 +1166,21 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
                       ],
                       
                       const SizedBox(height: 24),
+                      
+                      // Record Payment Button (if there's remaining balance)
+                      if (fullBooking.totalAmount - fullBooking.totalPaid > 0) ...[
+                        ElevatedButton.icon(
+                          onPressed: () => _showRecordPaymentDialog(fullBooking),
+                          icon: const Icon(Icons.payment, size: 20),
+                          label: const Text('Rekod Pembayaran'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       
                       // Action Buttons
                       if (fullBooking.status == 'pending')
@@ -1237,6 +1359,251 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
     final timestamp = date.millisecondsSinceEpoch;
     final sequence = (timestamp % 10000).toString().padLeft(4, '0');
     return 'INV-$yearMonth-$sequence';
+  }
+
+  /// Show dialog to record payment
+  Future<void> _showRecordPaymentDialog(Booking booking) async {
+    final remainingBalance = booking.totalAmount - booking.totalPaid;
+    
+    final amountController = TextEditingController();
+    final referenceController = TextEditingController();
+    final notesController = TextEditingController();
+    String selectedPaymentMethod = 'cash';
+    
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Rekod Pembayaran'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Baki: RM${remainingBalance.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.success,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: amountController,
+                  decoration: const InputDecoration(
+                    labelText: 'Jumlah Pembayaran *',
+                    prefixIcon: Icon(Icons.attach_money),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Sila masukkan jumlah';
+                    }
+                    final amount = double.tryParse(value);
+                    if (amount == null || amount <= 0) {
+                      return 'Jumlah mesti lebih daripada 0';
+                    }
+                    if (amount > remainingBalance) {
+                      return 'Jumlah melebihi baki';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: selectedPaymentMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Kaedah Pembayaran *',
+                    prefixIcon: Icon(Icons.payment),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('Tunai')),
+                    DropdownMenuItem(value: 'bank_transfer', child: Text('Bank Transfer')),
+                    DropdownMenuItem(value: 'cheque', child: Text('Cek')),
+                    DropdownMenuItem(value: 'credit_card', child: Text('Kad Kredit')),
+                    DropdownMenuItem(value: 'e_wallet', child: Text('E-Wallet')),
+                    DropdownMenuItem(value: 'other', child: Text('Lain-lain')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => selectedPaymentMethod = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: referenceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Rujukan (Pilihan)',
+                    prefixIcon: Icon(Icons.receipt),
+                    border: OutlineInputBorder(),
+                    hintText: 'No. cek, rujukan bank, dll',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nota (Pilihan)',
+                    prefixIcon: Icon(Icons.note),
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final amount = double.tryParse(amountController.text);
+                if (amount == null || amount <= 0 || amount > remainingBalance) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Sila masukkan jumlah yang sah'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(context, {
+                  'amount': amount,
+                  'payment_method': selectedPaymentMethod,
+                  'payment_reference': referenceController.text.isEmpty ? null : referenceController.text,
+                  'notes': notesController.text.isEmpty ? null : notesController.text,
+                });
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      try {
+        final paymentResult = await _repo.recordPayment(
+          bookingId: booking.id,
+          amount: result['amount'] as double,
+          paymentMethod: result['payment_method'] as String,
+          paymentReference: result['payment_reference'] as String?,
+          notes: result['notes'] as String?,
+        );
+
+        // Reload booking to get updated total_paid
+        final updatedBooking = await _repo.getBooking(booking.id);
+        
+        // Close payment dialog and reload booking details
+        Navigator.pop(context);
+        if (mounted) {
+          _showBookingDetails(updatedBooking);
+        }
+
+        // Show success message and offer to generate receipt
+        if (mounted) {
+          final generateReceipt = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Pembayaran Berjaya'),
+              content: Text(
+                'Pembayaran RM${result['amount'].toStringAsFixed(2)} telah direkod.\n\n'
+                'Baki: RM${(paymentResult['remaining_balance'] as double).toStringAsFixed(2)}\n\n'
+                'Adakah anda ingin generate resit pembayaran?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Tidak'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+                  child: const Text('Ya, Generate Resit'),
+                ),
+              ],
+            ),
+          );
+
+          if (generateReceipt == true && mounted) {
+            final payment = paymentResult['payment'] as Map<String, dynamic>;
+            await _generatePaymentReceipt(booking, payment);
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// Generate payment receipt PDF
+  Future<void> _generatePaymentReceipt(Booking booking, Map<String, dynamic> payment) async {
+    try {
+      final businessProfile = await _businessProfileRepo.getBusinessProfile();
+      
+      final pdfBytes = await BookingPDFGenerator.generatePaymentReceipt(
+        booking: booking,
+        payment: payment,
+        businessProfile: businessProfile,
+      );
+
+      // Save and open PDF
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Resit pembayaran telah dijana'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error generating receipt: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Format payment method for display
+  String _formatPaymentMethod(String method) {
+    switch (method.toLowerCase()) {
+      case 'cash':
+        return 'Tunai';
+      case 'bank_transfer':
+        return 'Bank Transfer';
+      case 'cheque':
+        return 'Cek';
+      case 'credit_card':
+        return 'Kad Kredit';
+      case 'e_wallet':
+        return 'E-Wallet';
+      case 'other':
+        return 'Lain-lain';
+      default:
+        return method;
+    }
   }
 }
 
