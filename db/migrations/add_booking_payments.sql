@@ -124,6 +124,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop trigger if exists (for idempotency)
+DROP TRIGGER IF EXISTS trigger_update_booking_total_paid ON booking_payments;
+
 -- Trigger to auto-update total_paid when payment is added/updated/deleted
 CREATE TRIGGER trigger_update_booking_total_paid
     AFTER INSERT OR UPDATE OR DELETE ON booking_payments
