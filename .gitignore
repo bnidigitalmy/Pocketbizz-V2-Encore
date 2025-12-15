@@ -31,6 +31,9 @@ Thumbs.db
 # Encore
 encore.gen/
 
+# Legacy / unused (was a broken gitlink/submodule)
+pocketbizz-v2/
+
 # Firebase
 .firebase/
 firebase-debug.log
