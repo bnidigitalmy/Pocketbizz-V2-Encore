@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 import '../supabase/supabase_client.dart';
 
 // Conditional import for File - only import dart:io when NOT on web
@@ -65,7 +66,8 @@ class ImageUploadService {
         // For web, use HTTP PUT with proper headers
         // Supabase Storage API endpoint
         final encodedPath = Uri.encodeComponent(filePath);
-        final storageUrl = 'https://gxllowlurizrkvpdircw.supabase.co/storage/v1/object/$_bucketName/$encodedPath';
+        final storageUrl =
+            '${AppConfig.supabaseUrl}/storage/v1/object/$_bucketName/$encodedPath';
         
         // Upload using HTTP PUT
         final response = await http.put(
@@ -73,7 +75,7 @@ class ImageUploadService {
           headers: {
             'Authorization': 'Bearer $accessToken',
             'Content-Type': 'image/jpeg',
-            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4bGxvd2x1cml6cmt2cGRpcmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTAyMDksImV4cCI6MjA3OTc4NjIwOX0.Avft6LyKGwmU8JH3hXmO7ukNBlgG1XngjBX-prObycs',
+            'apikey': AppConfig.supabaseAnonKey,
             'x-upsert': 'false',
           },
           body: fileBytes,
