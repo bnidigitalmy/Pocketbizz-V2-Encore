@@ -6,6 +6,7 @@ import '../../bookings/presentation/bookings_page_optimized.dart';
 import '../../products/presentation/product_list_page.dart';
 import '../../sales/presentation/sales_page.dart';
 import '../../expenses/presentation/expenses_page.dart';
+import '../../expenses/presentation/receipt_scan_page.dart';
 import '../../vendors/presentation/vendors_page.dart';
 import '../../production/presentation/production_planning_page.dart';
 import '../../finished_products/presentation/finished_products_page.dart';
@@ -29,33 +30,46 @@ class _HomePageState extends State<HomePage> {
     const SalesPage(),
   ];
 
+  /// Open Receipt Scan page
+  void _openReceiptScan() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ReceiptScanPage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: _pages[_currentIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
+      // Bottom navigation with Scan in center (same level as other icons)
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildNavItem(0, Icons.dashboard, 'Dashboard'),
+                _buildNavItem(1, Icons.event_note, 'Tempahan'),
+                // Center Scan button (same level)
+                _buildScanButton(),
+                _buildNavItem(2, Icons.inventory, 'Produk'),
+                _buildNavItem(3, Icons.point_of_sale, 'Jualan'),
+              ],
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.event_note),
-            label: 'Tempahan',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.inventory),
-            label: 'Produk',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.point_of_sale),
-            label: 'Jualan',
-          ),
-        ],
+        ),
       ),
       drawer: Drawer(
         child: ListView(
@@ -386,6 +400,76 @@ class _HomePageState extends State<HomePage> {
                   Navigator.of(context).pushReplacementNamed('/login');
                 }
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build bottom navigation item
+  Widget _buildNavItem(int index, IconData icon, String label) {
+    final isSelected = _currentIndex == index;
+    return InkWell(
+      onTap: () => setState(() => _currentIndex = index),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? AppColors.primary : Colors.grey,
+              size: 24,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: isSelected ? AppColors.primary : Colors.grey,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build center Scan button (same level as other nav items)
+  Widget _buildScanButton() {
+    return InkWell(
+      onTap: _openReceiptScan,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.document_scanner,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Scan',
+              style: TextStyle(
+                fontSize: 10,
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),

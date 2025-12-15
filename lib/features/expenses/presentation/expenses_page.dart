@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/models/expense.dart';
 import '../../../data/repositories/expenses_repository_supabase.dart';
+import 'receipt_scan_page.dart';
 
 /// Expenses Page - Friendly UX for busy non-technical users.
 ///
@@ -408,13 +409,116 @@ class _ExpensesPageState extends State<ExpensesPage> {
               ),
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddDialog,
+        onPressed: _showAddOptions,
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Tambah Perbelanjaan'),
       ),
     );
+  }
+
+  /// Show bottom sheet with options: Manual entry or Scan receipt
+  void _showAddOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Tambah Perbelanjaan',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Pilih cara untuk merekod perbelanjaan',
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 20),
+                // Scan Receipt option
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.document_scanner,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  title: const Text(
+                    'Scan Resit',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    'Imbas resit untuk auto-isi maklumat',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openScanReceipt();
+                  },
+                ),
+                const SizedBox(height: 8),
+                // Manual entry option
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.edit_note,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  title: const Text(
+                    'Isi Manual',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    'Masukkan maklumat secara manual',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openAddDialog();
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Open Receipt Scan page and refresh on success
+  Future<void> _openScanReceipt() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (context) => const ReceiptScanPage()),
+    );
+    if (result == true) {
+      _loadExpenses(); // Refresh list after successful save
+    }
   }
 
   PreferredSizeWidget _buildAppBar() {
