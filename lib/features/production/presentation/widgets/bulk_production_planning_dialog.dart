@@ -602,26 +602,60 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
             '✅ Semua bahan mencukupi.',
             style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w600),
           ),
-        ...insufficientMaterials.map((m) {
-          final insufficient = !m.isSufficient;
-          return Card(
-            elevation: 0,
-            color: insufficient ? Colors.red.withOpacity(0.05) : null,
-            child: ListTile(
-              title: Text(m.stockItemName, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(
-                'Perlu: ${m.requiredStockQty.toStringAsFixed(2)} ${m.stockUnit} • '
-                'Stok: ${m.currentStock.toStringAsFixed(2)} ${m.stockUnit}'
-                '${insufficient ? ' • Kurang: ${m.shortageStockQty.toStringAsFixed(2)} ${m.stockUnit}' : ''}',
+        ...insufficientMaterials.map((m) => _buildInsufficientMaterialCard(m)),
+      ],
+    );
+  }
+
+  Widget _buildInsufficientMaterialCard(BulkMaterialSummary m) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: Colors.red.withOpacity(0.05),
+      child: ListTile(
+        leading: const Icon(Icons.cancel, color: Colors.red),
+        title: Text(
+          m.stockItemName,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Text('Diperlukan: ${m.requiredStockQty.toStringAsFixed(2)} ${m.stockUnit}'),
+            Text('Stok: ${m.currentStock.toStringAsFixed(2)} ${m.stockUnit}'),
+            Text(
+              'Kurang: ${m.shortageStockQty.toStringAsFixed(2)} ${m.stockUnit}',
+              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.orange[200]!),
               ),
-              trailing: Text(
-                'Beli: ${m.packagesNeeded} pek',
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+              child: Row(
+                children: [
+                  Icon(Icons.shopping_bag, size: 16, color: Colors.orange[700]),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Cadangan Beli: ${m.packagesNeeded} pek/pcs '
+                      '(${m.suggestedBuyQty.toStringAsFixed(2)} ${m.stockUnit})',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange[900],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          );
-        }),
-      ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -632,14 +666,9 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
         ? 'Tiada resipi aktif'
         : p.canProduceNow
             ? 'Boleh produce'
-            : 'Stok tidak mencukupi (semak bahan dalam senarai)';
+            : 'Stok tidak mencukupi';
     final expiry = _expiryPerProduct ? _expiryByProductId[p.productId] : null;
     final expiryToShow = expiry ?? _expiryDate;
-    final shortageByStockItemId = <String, double>{};
-    for (final b in p.blockers) {
-      shortageByStockItemId[b.stockItemId] =
-          (shortageByStockItemId[b.stockItemId] ?? 0) + b.shortageInStockUnit;
-    }
 
     return Card(
       elevation: 0,
@@ -695,42 +724,47 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Bahan digunakan:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   ...p.materials.map((m) {
-                    final shortage = shortageByStockItemId[m.stockItemId] ?? 0.0;
-                    final isShort = shortage > 0;
+                    final usageText = '${m.quantityUsageUnit.toStringAsFixed(2)} ${m.usageUnit}';
+                    final convertedSameUnit =
+                        (m.usageUnit.toLowerCase().trim() == m.stockUnit.toLowerCase().trim());
+                    final convertedText =
+                        convertedSameUnit ? null : '≈ ${m.quantityStockUnit.toStringAsFixed(2)} ${m.stockUnit}';
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            isShort ? Icons.error_outline : Icons.circle,
-                            size: isShort ? 16 : 6,
-                            color: isShort ? Colors.red : Colors.grey,
-                          ),
+                          const Icon(Icons.circle, size: 6, color: Colors.grey),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               m.stockItemName,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: isShort ? Colors.red[700] : null,
-                              ),
+                              style: const TextStyle(fontWeight: FontWeight.w600),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            '${m.quantityUsageUnit.toStringAsFixed(2)} ${m.usageUnit}'
-                            '  (≈ ${m.quantityStockUnit.toStringAsFixed(2)} ${m.stockUnit})'
-                            '${isShort ? '  •  Kurang: ${shortage.toStringAsFixed(2)} ${m.stockUnit}' : ''}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isShort ? Colors.red[700] : Colors.grey[700],
-                              fontWeight: isShort ? FontWeight.w700 : FontWeight.normal,
-                            ),
-                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                usageText,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[800],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (convertedText != null)
+                                Text(
+                                  convertedText,
+                                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                                ),
+                            ],
+                          )
                         ],
                       ),
                     );
