@@ -10,6 +10,11 @@ class ClaimsRepositorySupabase {
     int offset = 0,
   }) async {
     try {
+      final userId = SupabaseHelper.currentUserId;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
       // Get all deliveries grouped by vendor
       final deliveriesResponse = await supabase
           .from('vendor_deliveries')
@@ -22,6 +27,7 @@ class ClaimsRepositorySupabase {
             payment_status,
             total_amount
           ''')
+          .eq('business_owner_id', userId)
           .order('delivery_date', ascending: false);
 
       final deliveries = deliveriesResponse as List<dynamic>;
@@ -92,6 +98,11 @@ class ClaimsRepositorySupabase {
   /// Get claim details for a specific vendor
   Future<ClaimDetails> getClaimDetails(String vendorId) async {
     try {
+      final userId = SupabaseHelper.currentUserId;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
       // Get all deliveries for this vendor with items
       final deliveriesResponse = await supabase
           .from('vendor_deliveries')
@@ -103,6 +114,7 @@ class ClaimsRepositorySupabase {
             )
           ''')
           .eq('vendor_id', vendorId)
+          .eq('business_owner_id', userId)
           .order('delivery_date', ascending: false);
 
       final deliveries = deliveriesResponse as List<dynamic>;
@@ -113,6 +125,7 @@ class ClaimsRepositorySupabase {
             .from('vendors')
             .select('name')
             .eq('id', vendorId)
+            .eq('business_owner_id', userId)
             .single();
 
         return ClaimDetails(

@@ -11,9 +11,15 @@ class VendorsRepositorySupabase {
 
   /// Get all vendors
   Future<List<Vendor>> getAllVendors({bool activeOnly = false}) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     dynamic query = supabase
         .from('vendors')
-        .select();
+        .select()
+        .eq('business_owner_id', userId);
 
     if (activeOnly) {
       query = query.eq('is_active', true);
@@ -29,10 +35,16 @@ class VendorsRepositorySupabase {
 
   /// Get vendor by ID
   Future<Vendor?> getVendorById(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final response = await supabase
         .from('vendors')
         .select()
         .eq('id', vendorId)
+        .eq('business_owner_id', userId)
         .maybeSingle();
 
     if (response == null) return null;
@@ -75,18 +87,30 @@ class VendorsRepositorySupabase {
 
   /// Update vendor
   Future<void> updateVendor(String vendorId, Map<String, dynamic> updates) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     await supabase
         .from('vendors')
         .update({...updates, 'updated_at': DateTime.now().toIso8601String()})
-        .eq('id', vendorId);
+        .eq('id', vendorId)
+        .eq('business_owner_id', userId);
   }
 
   /// Delete vendor
   Future<void> deleteVendor(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     await supabase
         .from('vendors')
         .delete()
-        .eq('id', vendorId);
+        .eq('id', vendorId)
+        .eq('business_owner_id', userId);
   }
 
   /// Toggle vendor active status
@@ -118,15 +142,26 @@ class VendorsRepositorySupabase {
 
   /// Remove product from vendor
   Future<void> removeProductFromVendor(String vendorId, String productId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     await supabase
         .from('vendor_products')
         .delete()
         .eq('vendor_id', vendorId)
-        .eq('product_id', productId);
+        .eq('product_id', productId)
+        .eq('business_owner_id', userId);
   }
 
   /// Get products assigned to vendor
   Future<List<Map<String, dynamic>>> getVendorProducts(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final response = await supabase
         .from('vendor_products')
         .select('''
@@ -134,6 +169,7 @@ class VendorsRepositorySupabase {
           products!inner(id, sku, name, sale_price, image_url)
         ''')
         .eq('vendor_id', vendorId)
+        .eq('business_owner_id', userId)
         .eq('is_active', true);
 
     return (response as List).cast<Map<String, dynamic>>();
@@ -145,12 +181,18 @@ class VendorsRepositorySupabase {
 
   /// Get all claims
   Future<List<VendorClaim>> getAllClaims({String? status, String? vendorId}) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     dynamic query = supabase
         .from('vendor_claims')
         .select('''
           *,
           vendors!inner(name)
-        ''');
+        ''')
+        .eq('business_owner_id', userId);
 
     if (status != null) {
       query = query.eq('status', status);
@@ -176,6 +218,11 @@ class VendorsRepositorySupabase {
 
   /// Get claim by ID with items
   Future<Map<String, dynamic>?> getClaimById(String claimId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final claimResponse = await supabase
         .from('vendor_claims')
         .select('''
@@ -183,6 +230,7 @@ class VendorsRepositorySupabase {
           vendors!inner(name, phone, email)
         ''')
         .eq('id', claimId)
+        .eq('business_owner_id', userId)
         .maybeSingle();
 
     if (claimResponse == null) return null;
@@ -193,7 +241,8 @@ class VendorsRepositorySupabase {
           *,
           products!inner(name, sku)
         ''')
-        .eq('claim_id', claimId);
+        .eq('claim_id', claimId)
+        .eq('business_owner_id', userId);
 
     return {
       'claim': claimResponse,
@@ -241,10 +290,16 @@ class VendorsRepositorySupabase {
 
   /// Get pending claims count
   Future<int> getPendingClaimsCount() async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final response = await supabase
         .from('vendor_claims')
         .select()
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .eq('business_owner_id', userId);
 
     return (response as List).length;
   }
@@ -279,6 +334,11 @@ class VendorsRepositorySupabase {
 
   /// Get vendor payments
   Future<List<VendorPayment>> getVendorPayments(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final response = await supabase
         .from('vendor_payments')
         .select('''
@@ -286,6 +346,7 @@ class VendorsRepositorySupabase {
           vendors!inner(name)
         ''')
         .eq('vendor_id', vendorId)
+        .eq('business_owner_id', userId)
         .order('payment_date', ascending: false);
 
     return (response as List).map((json) {
@@ -300,15 +361,22 @@ class VendorsRepositorySupabase {
 
   /// Get vendor summary (total sales, commission, payments)
   Future<Map<String, dynamic>> getVendorSummary(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final claims = await supabase
         .from('vendor_claims')
         .select('status, total_sales_amount, total_commission')
-        .eq('vendor_id', vendorId);
+        .eq('vendor_id', vendorId)
+        .eq('business_owner_id', userId);
 
     final payments = await supabase
         .from('vendor_payments')
         .select('amount')
-        .eq('vendor_id', vendorId);
+        .eq('vendor_id', vendorId)
+        .eq('business_owner_id', userId);
 
     double totalSales = 0;
     double totalCommission = 0;

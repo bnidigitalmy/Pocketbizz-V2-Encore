@@ -9,6 +9,11 @@ class DeliveriesRepositorySupabase {
     int limit = 20,
     int offset = 0,
   }) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final response = await supabase
         .from('vendor_deliveries')
         .select('''
@@ -18,6 +23,7 @@ class DeliveriesRepositorySupabase {
             products (id, name, sku)
           )
         ''')
+        .eq('business_owner_id', userId)
         .order('delivery_date', ascending: false)
         .range(offset, offset + limit - 1);
 
@@ -50,13 +56,18 @@ class DeliveriesRepositorySupabase {
 
   /// Get delivery by ID
   Future<Delivery?> getDeliveryById(String deliveryId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final response = await supabase.from('vendor_deliveries').select('''
           *,
           vendor_delivery_items (
             *,
             products (id, name, sku)
           )
-        ''').eq('id', deliveryId).maybeSingle();
+        ''').eq('id', deliveryId).eq('business_owner_id', userId).maybeSingle();
 
     if (response == null) return null;
 
@@ -80,6 +91,11 @@ class DeliveriesRepositorySupabase {
 
   /// Get last delivery for a vendor
   Future<Delivery?> getLastDeliveryForVendor(String vendorId) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     final response = await supabase
         .from('vendor_deliveries')
         .select('''
@@ -90,6 +106,7 @@ class DeliveriesRepositorySupabase {
           )
         ''')
         .eq('vendor_id', vendorId)
+        .eq('business_owner_id', userId)
         .order('delivery_date', ascending: false)
         .limit(1)
         .maybeSingle();
@@ -129,6 +146,7 @@ class DeliveriesRepositorySupabase {
         .from('vendors')
         .select('name')
         .eq('id', vendorId)
+        .eq('business_owner_id', userId)
         .single();
     final vendorName = vendorResponse['name'] as String;
 
@@ -187,7 +205,11 @@ class DeliveriesRepositorySupabase {
           );
         } catch (e) {
           // If stock consumption fails, rollback delivery creation
-          await supabase.from('vendor_deliveries').delete().eq('id', deliveryId);
+          await supabase
+              .from('vendor_deliveries')
+              .delete()
+              .eq('id', deliveryId)
+              .eq('business_owner_id', userId);
           throw Exception('Failed to consume stock for ${item['product_name']}: $e');
         }
       }
@@ -244,19 +266,29 @@ class DeliveriesRepositorySupabase {
 
   /// Update delivery status
   Future<void> updateDeliveryStatus(String deliveryId, String status) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     await supabase.from('vendor_deliveries').update({
       'status': status,
       'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', deliveryId);
+    }).eq('id', deliveryId).eq('business_owner_id', userId);
   }
 
   /// Update delivery payment status
   Future<void> updateDeliveryPaymentStatus(
       String deliveryId, String paymentStatus) async {
+    final userId = SupabaseHelper.currentUserId;
+    if (userId == null) {
+      throw Exception('User not authenticated');
+    }
+
     await supabase.from('vendor_deliveries').update({
       'payment_status': paymentStatus,
       'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', deliveryId);
+    }).eq('id', deliveryId).eq('business_owner_id', userId);
   }
 
   /// Update delivery item rejection
