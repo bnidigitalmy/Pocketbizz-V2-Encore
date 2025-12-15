@@ -6,9 +6,12 @@ import '../../../core/supabase/supabase_client.dart' show supabase;
 import '../../../data/repositories/production_repository_supabase.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/repositories/shopping_cart_repository_supabase.dart';
+import '../../../data/repositories/planner_tasks_repository_supabase.dart';
+import '../../../data/models/planner_task.dart';
 import '../../../data/models/production_batch.dart';
 import '../../../data/models/product.dart';
 import 'widgets/production_planning_dialog.dart';
+import 'widgets/bulk_production_planning_dialog.dart';
 
 /// Production Planning Page - 3-Step Production Planning with Preview
 class ProductionPlanningPage extends StatefulWidget {
@@ -22,9 +25,11 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
   late final ProductionRepository _productionRepo;
   late final ProductsRepositorySupabase _productsRepo;
   late final ShoppingCartRepository _cartRepo;
+  late final PlannerTasksRepositorySupabase _plannerRepo;
 
   List<Product> _products = [];
   List<ProductionBatch> _batches = [];
+  List<PlannerTask> _scheduled = [];
   bool _isLoading = true;
 
 
@@ -34,6 +39,7 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
     _productionRepo = ProductionRepository(supabase);
     _productsRepo = ProductsRepositorySupabase();
     _cartRepo = ShoppingCartRepository();
+    _plannerRepo = PlannerTasksRepositorySupabase();
     _loadData();
   }
 
@@ -41,9 +47,10 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
     setState(() => _isLoading = true);
 
     try {
-      final [productsResult, batchesResult] = await Future.wait([
+      final [productsResult, batchesResult, scheduledResult] = await Future.wait([
         _productsRepo.listProducts(),
         _productionRepo.getAllBatches(),
+        _plannerRepo.listTasks(scope: 'upcoming', tags: const ['production'], limit: 20),
       ]);
 
       // Sort batches: latest production date (or created) on top
@@ -57,6 +64,9 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
       setState(() {
         _products = List<Product>.from(productsResult as List);
         _batches = sortedBatches;
+        _scheduled = (scheduledResult as List<PlannerTask>)
+            .where((t) => t.status != 'done' && t.status != 'cancelled')
+            .toList();
         _isLoading = false;
       });
     } catch (e) {
@@ -88,11 +98,75 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
     );
   }
 
+  void _showBulkPlanningDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => BulkProductionPlanningDialog(
+        products: _products,
+        productionRepo: _productionRepo,
+        cartRepo: _cartRepo,
+        onSuccess: _loadData,
+      ),
+    );
+  }
+
+  Future<void> _showPlanChooser() async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.restaurant_menu, color: AppColors.primary),
+                  title: const Text('Rancang Produksi (1 Produk)'),
+                  subtitle: const Text('Flow sedia ada: preview bahan → sahkan produksi'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showPlanningDialog();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.factory, color: AppColors.primary),
+                  title: const Text('Bulk Produksi (Banyak Produk)'),
+                  subtitle: const Text('Pilih banyak produk + batch, auto gabung bahan & senarai belian'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showBulkPlanningDialog();
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   String? _getExpiryStatus(DateTime? expiryDate) {
     if (expiryDate == null) return null;
 
-    final today = DateTime.now();
-    today.copyWith(hour: 0, minute: 0, second: 0, millisecond: 0);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final expiry = expiryDate.copyWith(hour: 0, minute: 0, second: 0, millisecond: 0);
     final twoDaysFromNow = today.add(const Duration(days: 2));
 
@@ -145,6 +219,8 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
                           color: Colors.grey[600],
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      _buildScheduledSection(),
                     ],
                   ),
                 ),
@@ -167,11 +243,102 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showPlanningDialog,
+        onPressed: _showPlanChooser,
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
-        label: const Text('Rancang Produksi'),
+        label: const Text('Rancang/Bulk'),
+      ),
+    );
+  }
+
+  Widget _buildScheduledSection() {
+    final next = List<PlannerTask>.from(_scheduled)
+      ..sort((a, b) {
+        final ad = a.dueAt ?? DateTime.now().add(const Duration(days: 3650));
+        final bd = b.dueAt ?? DateTime.now().add(const Duration(days: 3650));
+        return ad.compareTo(bd);
+      });
+
+    final upcoming = next.take(3).toList();
+
+    if (upcoming.isEmpty) {
+      return Row(
+        children: [
+          Icon(Icons.event_available, size: 16, color: Colors.grey[600]),
+          const SizedBox(width: 6),
+          Text(
+            'Tiada jadual produksi akan datang',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: () => Navigator.of(context).pushNamed('/planner'),
+            child: const Text('Buka Planner'),
+          ),
+        ],
+      );
+    }
+
+    return Card(
+      elevation: 0,
+      color: Colors.blue.withOpacity(0.06),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.blue.withOpacity(0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.event_note, size: 18, color: Colors.blue),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Jadual Produksi (akan datang)',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed('/planner'),
+                  child: const Text('Lihat semua'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...upcoming.map((t) {
+              final due = t.dueAt;
+              final when = due != null
+                  ? DateFormat('dd MMM, hh:mm a', 'ms_MY').format(due)
+                  : 'Tiada masa';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.circle, size: 6, color: Colors.blue),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        t.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      when,
+                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
       ),
     );
   }

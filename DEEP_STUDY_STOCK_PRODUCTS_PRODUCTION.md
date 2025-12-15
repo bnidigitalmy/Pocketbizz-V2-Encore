@@ -609,9 +609,9 @@ Products track stock via **production batches**:
 ### 2.8 Current Limitations
 
 1. **Cost Calculation Not Always Auto-Updated**
-   - Recipe changes don't always trigger cost recalculation
-   - Manual refresh sometimes needed
-   - TODO: Add trigger untuk auto-update cost when recipe changes
+   - **Jika stock cost berubah** (purchase_price/package_size/unit), kos bahan dalam resepi boleh jadi outdated
+   - Manual refresh/recalculate mungkin diperlukan jika tiada trigger untuk refresh recipe_items dari stock_items
+   - ✅ Enhancement: tambah trigger untuk auto-refresh kos recipe_items bila stock_items cost berubah (lihat migration `db/migrations/2025-12-16_auto_refresh_recipe_item_costs_on_stock_update.sql`)
 
 2. **No Product Variants**
    - Can't have different sizes/flavors of same product

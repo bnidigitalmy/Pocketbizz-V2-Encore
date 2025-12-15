@@ -466,6 +466,7 @@ class _BatchDetailsDialogState extends State<BatchDetailsDialog> {
   
   Widget _buildMovementItem(Map<String, dynamic> movement) {
     final movementType = movement['movement_type'] as String? ?? 'sale';
+    final referenceType = movement['reference_type'] as String?;
     final quantity = (movement['quantity'] as num?)?.toDouble() ?? 0.0;
     final remainingAfter = (movement['remaining_after_movement'] as num?)?.toDouble() ?? 0.0;
     final createdAt = movement['created_at'] != null
@@ -478,16 +479,18 @@ class _BatchDetailsDialogState extends State<BatchDetailsDialog> {
     Color color;
     String typeLabel;
     
-    switch (movementType) {
+    // Prefer reference_type for UI labelling (Option A):
+    // movement_type remains constrained, while reference_type carries source like 'delivery'.
+    if ((referenceType ?? '').toLowerCase() == 'delivery') {
+      icon = Icons.local_shipping;
+      color = Colors.orange;
+      typeLabel = 'Penghantaran';
+    } else {
+      switch (movementType) {
       case 'sale':
         icon = Icons.shopping_cart;
         color = Colors.green;
         typeLabel = 'Jualan';
-        break;
-      case 'delivery':
-        icon = Icons.local_shipping;
-        color = Colors.orange;
-        typeLabel = 'Penghantaran';
         break;
       case 'production':
         icon = Icons.factory;
@@ -513,6 +516,7 @@ class _BatchDetailsDialogState extends State<BatchDetailsDialog> {
         icon = Icons.help_outline;
         color = Colors.grey;
         typeLabel = 'Lain-lain';
+      }
     }
     
     return Container(

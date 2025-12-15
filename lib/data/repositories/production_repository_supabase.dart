@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/production_batch.dart';
 import '../models/production_preview.dart';
+import '../models/bulk_production_preview.dart';
 import '../../core/utils/unit_conversion.dart';
 import 'recipes_repository_supabase.dart';
 import 'stock_repository_supabase.dart';
@@ -10,6 +11,25 @@ class ProductionRepository {
   final SupabaseClient _supabase;
 
   ProductionRepository(this._supabase);
+
+  /// Map reference types (eg: 'delivery') to valid movement types stored in DB.
+  /// We keep `movement_type` constrained and use `reference_type` to distinguish sources.
+  String _movementTypeForReference(String? referenceType) {
+    switch ((referenceType ?? '').toLowerCase()) {
+      case 'adjustment':
+        return 'adjustment';
+      case 'expired':
+        return 'expired';
+      case 'damaged':
+        return 'damaged';
+      case 'production':
+        return 'production';
+      case 'sale':
+      case 'delivery':
+      default:
+        return 'sale';
+    }
+  }
 
   // ============================================================================
   // PRODUCTION BATCHES CRUD
@@ -260,7 +280,7 @@ class ProductionRepository {
         await _logStockMovement(
           batchId: batchId,
           productId: batch.productId,
-          movementType: referenceType ?? 'sale',
+          movementType: _movementTypeForReference(referenceType),
           quantity: batch.remainingQty, // Deduct all remaining
           remainingAfter: 0,
           referenceId: referenceId,
@@ -275,7 +295,7 @@ class ProductionRepository {
         await _logStockMovement(
           batchId: batchId,
           productId: batch.productId,
-          movementType: referenceType ?? 'sale',
+          movementType: _movementTypeForReference(referenceType),
           quantity: quantity,
           remainingAfter: newRemaining,
           referenceId: referenceId,
@@ -457,10 +477,8 @@ class ProductionRepository {
       }
 
       // Get batches ordered by batch_date (FIFO - oldest first)
-      final batches = await getAllBatches(
-        productId: productId,
-        onlyWithRemaining: true,
-      );
+      // NOTE: getAllBatches sorts newest first, so we must use FIFO helper here.
+      final batches = await getOldestBatchesForProduct(productId, limit: 500);
 
       if (batches.isEmpty) {
         throw Exception('No stock available for product');
@@ -508,7 +526,7 @@ class ProductionRepository {
         await _logStockMovement(
           batchId: batch.id,
           productId: productId,
-          movementType: 'delivery',
+          movementType: _movementTypeForReference('delivery'),
           quantity: toConsume,
           remainingAfter: newRemaining,
           referenceId: deliveryId,
@@ -660,6 +678,249 @@ class ProductionRepository {
       );
     } catch (e) {
       throw Exception('Failed to preview production plan: $e');
+    }
+  }
+
+  /// Bulk preview production plan for multiple products.
+  /// - Aggregates raw material needs across all selected products.
+  /// - Computes a "produce now" plan (partial) that respects shared raw materials:
+  ///   products are evaluated in name order, decrementing available stock as we go.
+  Future<BulkProductionPlan> previewBulkProductionPlan({
+    required List<BulkProductionSelection> selections,
+  }) async {
+    try {
+      if (selections.isEmpty) {
+        return BulkProductionPlan(products: [], materials: []);
+      }
+
+      final validSelections =
+          selections.where((s) => s.batchCount > 0).toList(growable: false);
+      if (validSelections.isEmpty) {
+        return BulkProductionPlan(products: [], materials: []);
+      }
+
+      final productIds = validSelections.map((s) => s.productId).toList();
+      final batchCountByProductId = <String, int>{
+        for (final s in validSelections) s.productId: s.batchCount,
+      };
+
+      // 1) Fetch products in one query
+      final productsResp = await _supabase
+          .from('products')
+          .select('id, name, units_per_batch, total_cost_per_batch, business_owner_id')
+          .inFilter('id', productIds);
+
+      final productsById = <String, Map<String, dynamic>>{};
+      for (final row in (productsResp as List)) {
+        productsById[row['id'] as String] = row as Map<String, dynamic>;
+      }
+
+      // 2) Fetch active recipes for these products
+      final recipesResp = await _supabase
+          .from('recipes')
+          .select('id, product_id')
+          .eq('is_active', true)
+          .inFilter('product_id', productIds);
+
+      final recipeIdByProductId = <String, String>{};
+      for (final row in (recipesResp as List)) {
+        final productId = row['product_id'] as String?;
+        final recipeId = row['id'] as String?;
+        if (productId != null && recipeId != null) {
+          recipeIdByProductId[productId] = recipeId;
+        }
+      }
+
+      final recipeIds = recipeIdByProductId.values.toSet().toList();
+
+      // 3) Fetch recipe items for all recipes
+      final recipeItemsResp = recipeIds.isEmpty
+          ? <dynamic>[]
+          : await _supabase
+              .from('recipe_items')
+              .select('id, recipe_id, stock_item_id, quantity_needed, usage_unit')
+              .inFilter('recipe_id', recipeIds);
+
+      final recipeItemsByProductId =
+          <String, List<Map<String, dynamic>>>{}; // product_id -> items
+      final allStockItemIds = <String>{};
+
+      final recipeIdToProductId = <String, String>{
+        for (final e in recipeIdByProductId.entries) e.value: e.key,
+      };
+
+      for (final row in (recipeItemsResp as List)) {
+        final recipeId = row['recipe_id'] as String?;
+        final productId = recipeId != null ? recipeIdToProductId[recipeId] : null;
+        if (productId == null) continue;
+
+        final item = row as Map<String, dynamic>;
+        (recipeItemsByProductId[productId] ??= []).add(item);
+
+        final sid = item['stock_item_id'] as String?;
+        if (sid != null) allStockItemIds.add(sid);
+      }
+
+      // 4) Fetch only needed stock items
+      final stockResp = allStockItemIds.isEmpty
+          ? <dynamic>[]
+          : await _supabase
+              .from('stock_items')
+              .select('id, name, unit, current_quantity, package_size, purchase_price')
+              .inFilter('id', allStockItemIds.toList());
+
+      final stockById = <String, Map<String, dynamic>>{};
+      for (final row in (stockResp as List)) {
+        stockById[row['id'] as String] = row as Map<String, dynamic>;
+      }
+
+      // 5) Compute required quantities (stock unit) per product and aggregated totals
+      final requiredByProduct =
+          <String, Map<String, double>>{}; // product_id -> (stock_item_id -> qty_in_stock_unit)
+      final requiredAll = <String, double>{}; // stock_item_id -> total qty_in_stock_unit
+
+      for (final productId in productIds) {
+        final items = recipeItemsByProductId[productId] ?? const [];
+        final batchCount = batchCountByProductId[productId] ?? 0;
+        if (batchCount <= 0) continue;
+
+        final perProduct = <String, double>{};
+        for (final ri in items) {
+          final stockItemId = ri['stock_item_id'] as String?;
+          if (stockItemId == null) continue;
+
+          final stock = stockById[stockItemId];
+          if (stock == null) continue;
+
+          final usageUnit = (ri['usage_unit'] as String?) ?? stock['unit'] as String;
+          final stockUnit = stock['unit'] as String;
+          final qtyPerBatch = (ri['quantity_needed'] as num).toDouble();
+          final totalUsageQty = qtyPerBatch * batchCount;
+
+          final convertedQty = UnitConversion.convert(
+            quantity: totalUsageQty,
+            fromUnit: usageUnit,
+            toUnit: stockUnit,
+          );
+
+          perProduct[stockItemId] = (perProduct[stockItemId] ?? 0) + convertedQty;
+          requiredAll[stockItemId] = (requiredAll[stockItemId] ?? 0) + convertedQty;
+        }
+        requiredByProduct[productId] = perProduct;
+      }
+
+      // Build materials list (for FULL plan)
+      final materials = <BulkMaterialSummary>[];
+      for (final entry in requiredAll.entries) {
+        final stock = stockById[entry.key];
+        if (stock == null) continue;
+        final current = (stock['current_quantity'] as num?)?.toDouble() ?? 0.0;
+        final required = entry.value;
+        final shortage = (required - current) > 0 ? (required - current) : 0.0;
+        final packageSize = ((stock['package_size'] as num?)?.toDouble() ?? 1.0);
+        final normalizedPackage = packageSize > 0 ? packageSize : 1.0;
+        final packagesNeeded = shortage <= 0 ? 0 : (shortage / normalizedPackage).ceil();
+
+        materials.add(
+          BulkMaterialSummary(
+            stockItemId: entry.key,
+            stockItemName: (stock['name'] as String?) ?? 'Unknown',
+            stockUnit: (stock['unit'] as String?) ?? '',
+            currentStock: current,
+            requiredStockQty: required,
+            shortageStockQty: shortage,
+            packageSize: normalizedPackage,
+            packagesNeeded: packagesNeeded,
+          ),
+        );
+      }
+      materials.sort((a, b) => a.stockItemName.toLowerCase().compareTo(b.stockItemName.toLowerCase()));
+
+      // 6) Compute "produce now" partial plan (respect shared stock)
+      final remainingStock = <String, double>{
+        for (final s in stockById.entries)
+          s.key: (s.value['current_quantity'] as num?)?.toDouble() ?? 0.0
+      };
+
+      final productPlans = <BulkProductionProductPlan>[];
+      final sortedProducts = productIds.toList()
+        ..sort((a, b) {
+          final an = (productsById[a]?['name'] as String?) ?? '';
+          final bn = (productsById[b]?['name'] as String?) ?? '';
+          return an.toLowerCase().compareTo(bn.toLowerCase());
+        });
+
+      for (final productId in sortedProducts) {
+        final p = productsById[productId];
+        final productName = (p?['name'] as String?) ?? 'Unknown';
+        final unitsPerBatch = (p?['units_per_batch'] as num?)?.toInt() ?? 1;
+        final batchCount = batchCountByProductId[productId] ?? 0;
+        final totalUnits = batchCount * unitsPerBatch;
+        final totalCostPerBatch = (p?['total_cost_per_batch'] as num?)?.toDouble() ?? 0.0;
+        final estimatedTotalCost = totalCostPerBatch * batchCount;
+
+        final hasRecipe = recipeIdByProductId.containsKey(productId);
+        if (!hasRecipe) {
+          productPlans.add(
+            BulkProductionProductPlan(
+              productId: productId,
+              productName: productName,
+              batchCount: batchCount,
+              unitsPerBatch: unitsPerBatch,
+              totalUnits: totalUnits,
+              estimatedTotalCost: estimatedTotalCost,
+              hasActiveRecipe: false,
+              canProduceNow: false,
+              blockers: const [],
+            ),
+          );
+          continue;
+        }
+
+        final req = requiredByProduct[productId] ?? const <String, double>{};
+        final blockers = <BulkProductionBlocker>[];
+
+        for (final r in req.entries) {
+          final available = remainingStock[r.key] ?? 0.0;
+          if (available + 1e-9 < r.value) {
+            final stock = stockById[r.key];
+            blockers.add(
+              BulkProductionBlocker(
+                stockItemId: r.key,
+                stockItemName: (stock?['name'] as String?) ?? 'Unknown',
+                stockUnit: (stock?['unit'] as String?) ?? '',
+                shortageInStockUnit: r.value - available,
+              ),
+            );
+          }
+        }
+
+        final canProduceNow = blockers.isEmpty;
+        if (canProduceNow) {
+          // decrement remaining stock for next products
+          for (final r in req.entries) {
+            remainingStock[r.key] = (remainingStock[r.key] ?? 0.0) - r.value;
+          }
+        }
+
+        productPlans.add(
+          BulkProductionProductPlan(
+            productId: productId,
+            productName: productName,
+            batchCount: batchCount,
+            unitsPerBatch: unitsPerBatch,
+            totalUnits: totalUnits,
+            estimatedTotalCost: estimatedTotalCost,
+            hasActiveRecipe: true,
+            canProduceNow: canProduceNow,
+            blockers: blockers,
+          ),
+        );
+      }
+
+      return BulkProductionPlan(products: productPlans, materials: materials);
+    } catch (e) {
+      throw Exception('Failed to preview bulk production plan: $e');
     }
   }
 

@@ -470,9 +470,9 @@ class _ProductListPageState extends State<ProductListPage> {
     final stock = _stockCache[product.id] ?? 0.0;
     final isLowStock = stock > 0 && stock < 10;
     final isOutOfStock = stock == 0;
-    final profitMargin = product.salePrice > 0
-        ? ((product.salePrice - product.costPrice) / product.salePrice) * 100
-        : 0.0;
+    final profit = product.salePrice - product.costPrice;
+    final profitMargin =
+        product.salePrice > 0 ? (profit / product.salePrice) * 100 : 0.0;
 
     Color stockColor;
     IconData stockIcon;
@@ -643,32 +643,59 @@ class _ProductListPageState extends State<ProductListPage> {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Row(
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Icon(Icons.inventory_2, size: 14, color: Colors.grey[600]),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Stok: ${stock.toStringAsFixed(1)} ${product.unit}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[700],
-                            fontWeight: FontWeight.w500,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.inventory_2, size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Stok: ${stock.toStringAsFixed(1)} ${product.unit}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Icon(Icons.trending_up, size: 14, color: Colors.grey[600]),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Margin: ${profitMargin.toStringAsFixed(1)}%',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: profitMargin > 30
-                                ? Colors.green[700]
-                                : profitMargin > 15
-                                    ? Colors.orange[700]
-                                    : Colors.red[700],
-                            fontWeight: FontWeight.w500,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.payments_outlined, size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Untung: RM${profit.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: profit >= 0 ? Colors.green[700] : Colors.red[700],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.trending_up, size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Margin: ${profitMargin.toStringAsFixed(1)}%',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: profitMargin > 30
+                                    ? Colors.green[700]
+                                    : profitMargin > 15
+                                        ? Colors.orange[700]
+                                        : Colors.red[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -840,9 +867,9 @@ class _ProductListPageState extends State<ProductListPage> {
 
   void _showProductDetails(Product product) {
     final stock = _stockCache[product.id] ?? 0.0;
-    final profitMargin = product.salePrice > 0
-        ? ((product.salePrice - product.costPrice) / product.salePrice) * 100
-        : 0.0;
+    final profit = product.salePrice - product.costPrice;
+    final profitMargin =
+        product.salePrice > 0 ? (profit / product.salePrice) * 100 : 0.0;
 
     showModalBottomSheet(
       context: context,
@@ -888,6 +915,10 @@ class _ProductListPageState extends State<ProductListPage> {
                     _buildDetailRow(
                       'Harga Kos',
                       'RM${product.costPrice.toStringAsFixed(2)}',
+                    ),
+                    _buildDetailRow(
+                      'Untung (Anggaran)',
+                      'RM${profit.toStringAsFixed(2)}',
                     ),
                     _buildDetailRow(
                       'Margin Untung',

@@ -122,89 +122,17 @@ class DeliveriesRepositorySupabase {
     required List<Map<String, dynamic>> items,
     String? notes,
   }) async {
-    final userId = supabase.auth.currentUser!.id;
-
-    // Get vendor name
-    final vendorResponse = await supabase
-        .from('vendors')
-        .select('name')
-        .eq('id', vendorId)
-        .single();
-    final vendorName = vendorResponse['name'] as String;
-
-    // Calculate total amount based on ACCEPTED quantity only (quantity - rejected_qty)
-    final totalAmount = items.fold<double>(
-      0.0,
-      (sum, item) {
-        final quantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
-        final rejectedQty = (item['rejected_qty'] as num?)?.toDouble() ?? 0.0;
-        final acceptedQty = quantity - rejectedQty;
-        final unitPrice = (item['unit_price'] as num?)?.toDouble() ?? 0.0;
-        return sum + (acceptedQty * unitPrice);
+    // Atomic DB transaction: create vendor delivery + items + deduct FIFO in one RPC
+    final deliveryId = await supabase.rpc(
+      'create_vendor_delivery_and_deduct_fifo',
+      params: {
+        'p_vendor_id': vendorId,
+        'p_delivery_date': deliveryDate.toIso8601String().split('T')[0],
+        'p_status': status,
+        'p_notes': notes,
+        'p_items': items,
       },
-    );
-
-    // Create delivery
-    final deliveryResponse = await supabase
-        .from('vendor_deliveries')
-        .insert({
-          'business_owner_id': userId,
-          'vendor_id': vendorId,
-          'vendor_name': vendorName,
-          'delivery_date': deliveryDate.toIso8601String().split('T')[0],
-          'status': status,
-          'total_amount': totalAmount,
-          'notes': notes,
-        })
-        .select()
-        .single();
-
-    final deliveryId = deliveryResponse['id'] as String;
-
-    // Consume stock from production batches for each item
-    final productionRepo = ProductionRepository(supabase);
-    
-    // Create delivery items and consume stock
-    for (var item in items) {
-      final quantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
-      final unitPrice = (item['unit_price'] as num?)?.toDouble() ?? 0.0;
-      final rejectedQty = (item['rejected_qty'] as num?)?.toDouble() ?? 0.0;
-      final productId = item['product_id'] as String;
-      
-      // Calculate ACCEPTED quantity (quantity - rejectedQty)
-      // Only accepted items reduce stock - rejected items stay in stock
-      final acceptedQty = quantity - rejectedQty;
-      final totalPrice = acceptedQty * unitPrice;
-
-      // Consume stock from production batches (FIFO) for ACCEPTED quantity only
-      if (acceptedQty > 0) {
-        try {
-          await productionRepo.consumeStock(
-            productId: productId,
-            quantity: acceptedQty,
-            deliveryId: deliveryId,
-            note: 'Delivery #$deliveryId - Accepted: $acceptedQty, Rejected: $rejectedQty',
-          );
-        } catch (e) {
-          // If stock consumption fails, rollback delivery creation
-          await supabase.from('vendor_deliveries').delete().eq('id', deliveryId);
-          throw Exception('Failed to consume stock for ${item['product_name']}: $e');
-        }
-      }
-
-      // Create delivery item
-      await supabase.from('vendor_delivery_items').insert({
-        'delivery_id': deliveryId,
-        'product_id': productId,
-        'product_name': item['product_name'] as String,
-        'quantity': quantity,
-        'unit_price': unitPrice,
-        'total_price': totalPrice, // Based on accepted quantity
-        'retail_price': (item['retail_price'] as num?)?.toDouble(),
-        'rejected_qty': rejectedQty,
-        'rejection_reason': item['rejection_reason'] as String?,
-      });
-    }
+    ) as String;
 
     final createdDelivery = await getDeliveryById(deliveryId);
     if (createdDelivery != null) {
@@ -214,12 +142,12 @@ class DeliveriesRepositorySupabase {
     // Fallback if getDeliveryById fails
     return Delivery(
       id: deliveryId,
-      businessOwnerId: userId,
+      businessOwnerId: supabase.auth.currentUser!.id,
       vendorId: vendorId,
-      vendorName: vendorName,
+      vendorName: '',
       deliveryDate: deliveryDate,
       status: status,
-      totalAmount: totalAmount,
+      totalAmount: 0,
       notes: notes,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),

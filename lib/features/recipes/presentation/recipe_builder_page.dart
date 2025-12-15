@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/utils/unit_conversion.dart';
+import '../../../core/widgets/stock_item_search_field.dart';
 import '../../../data/repositories/recipes_repository_supabase.dart';
 import '../../../data/repositories/stock_repository_supabase.dart' as stock_repo;
 import '../../../data/models/recipe.dart';
@@ -824,18 +825,11 @@ class _AddIngredientDialogState extends State<_AddIngredientDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DropdownButtonFormField<StockItem>(
+            StockItemSearchField(
+              items: widget.availableStock,
               value: _selectedStock,
-              decoration: const InputDecoration(
-                labelText: 'Bahan',
-                border: OutlineInputBorder(),
-              ),
-              items: widget.availableStock.map((stock) {
-                return DropdownMenuItem(
-                  value: stock,
-                  child: Text(stock.name),
-                );
-              }).toList(),
+              labelText: 'Cari & Pilih Bahan',
+              helperText: 'Taip nama bahan untuk cari cepat (tak perlu scroll panjang).',
               onChanged: (value) {
                 setState(() => _selectedStock = value);
                 _updateCompatibleUnits();

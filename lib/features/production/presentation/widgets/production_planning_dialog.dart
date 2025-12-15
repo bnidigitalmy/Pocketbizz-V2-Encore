@@ -6,6 +6,7 @@ import '../../../../data/models/production_preview.dart';
 import '../../../../data/repositories/production_repository_supabase.dart';
 import '../../../../data/repositories/shopping_cart_repository_supabase.dart';
 import '../../../../data/models/production_batch.dart';
+import '../../../../data/repositories/planner_tasks_repository_supabase.dart';
 
 /// 3-Step Production Planning Dialog
 class ProductionPlanningDialog extends StatefulWidget {
@@ -31,12 +32,24 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
   Product? _selectedProduct;
   int _quantity = 1;
   DateTime _batchDate = DateTime.now();
+  DateTime _scheduledAt = DateTime.now().add(const Duration(days: 1));
   DateTime? _expiryDate;
   String _expiryInputType = 'days';
   String _shelfLifeDays = '';
   String _notes = '';
   ProductionPlan? _productionPlan;
   bool _isLoading = false;
+  final _plannerRepo = PlannerTasksRepositorySupabase();
+
+  bool get _canConfirmProduction => _productionPlan?.allStockSufficient ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default schedule time: tomorrow at 9:00am
+    final base = DateTime.now().add(const Duration(days: 1));
+    _scheduledAt = DateTime(base.year, base.month, base.day, 9, 0);
+  }
 
   void _calculateExpiryDate() {
     if (_shelfLifeDays.isEmpty || int.tryParse(_shelfLifeDays) == null) {
@@ -53,6 +66,102 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
     final date = DateTime(_batchDate.year, _batchDate.month, _batchDate.day);
     final expiry = date.add(Duration(days: days));
     setState(() => _expiryDate = expiry);
+  }
+
+  Future<void> _pickScheduledDateTime() async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime(_scheduledAt.year, _scheduledAt.month, _scheduledAt.day),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (pickedDate == null) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_scheduledAt),
+    );
+    if (pickedTime == null) return;
+
+    setState(() {
+      _scheduledAt = DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        pickedTime.hour,
+        pickedTime.minute,
+      );
+      // Keep batch_date aligned to the scheduled date (DB stores date only)
+      _batchDate = DateTime(pickedDate.year, pickedDate.month, pickedDate.day);
+      if (_expiryInputType == 'days' && _shelfLifeDays.isNotEmpty) {
+        _calculateExpiryDate();
+      }
+    });
+  }
+
+  Future<void> _handleSchedule() async {
+    if (_selectedProduct == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final product = _selectedProduct!;
+      final totalUnits = _quantity * product.unitsPerBatch;
+
+      final title = 'Produksi: ${product.name} ($totalUnits unit)';
+      final desc = 'Jadual produksi untuk ${product.name}.';
+      final notes = [
+        'Kuantiti: $_quantity batch = $totalUnits unit',
+        if (_productionPlan != null && !_productionPlan!.allStockSufficient)
+          'Nota: Stok bahan belum cukup. Sila beli bahan dahulu.',
+        if (_notes.trim().isNotEmpty) 'Catatan: ${_notes.trim()}',
+      ].join('\n');
+
+      final dueAt = _scheduledAt;
+      final remindAt = dueAt.subtract(const Duration(hours: 2));
+
+      await _plannerRepo.createTask(
+        title: title,
+        description: desc,
+        notes: notes,
+        dueAt: dueAt,
+        remindAt: remindAt,
+        priority: 'high',
+        tags: const ['production'],
+        linkedType: 'product',
+        linkedId: product.id,
+        source: 'production',
+        metadata: {
+          'product_id': product.id,
+          'product_name': product.name,
+          'quantity_batches': _quantity,
+          'units_per_batch': product.unitsPerBatch,
+          'total_units': totalUnits,
+          'batch_date': DateFormat('yyyy-MM-dd').format(_batchDate),
+          'expiry_date': _expiryDate != null ? DateFormat('yyyy-MM-dd').format(_expiryDate!) : null,
+        },
+      );
+
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onSuccess();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Produksi telah dijadualkan dalam Planner.'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal jadualkan produksi: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _handlePreview() async {
@@ -564,6 +673,68 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Schedule Date/Time (Planner)
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.blue.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.event, color: Colors.blue),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Jadual Produksi (Planner)',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      DateFormat('dd MMM yyyy, hh:mm a', 'ms_MY').format(_scheduledAt),
+                      style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isLoading ? null : _pickScheduledDateTime,
+                icon: const Icon(Icons.edit_calendar),
+                label: const Text('Ubah'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        if (!_canConfirmProduction) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.orange),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Stok bahan belum mencukupi. Anda boleh Jadualkan dahulu (tanpa tolak stok).',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
         // Batch Date
         TextFormField(
           initialValue: DateFormat('yyyy-MM-dd').format(_batchDate),
@@ -585,6 +756,14 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
             if (date != null) {
               setState(() {
                 _batchDate = date;
+                // Align schedule date to batch date (keep time)
+                _scheduledAt = DateTime(
+                  date.year,
+                  date.month,
+                  date.day,
+                  _scheduledAt.hour,
+                  _scheduledAt.minute,
+                );
                 if (_expiryInputType == 'days' && _shelfLifeDays.isNotEmpty) {
                   _calculateExpiryDate();
                 }
@@ -866,9 +1045,7 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
                 Expanded(
                   flex: 2,
                   child: ElevatedButton(
-                    onPressed: _productionPlan!.allStockSufficient
-                        ? () => setState(() => _step = 'confirm')
-                        : null,
+                    onPressed: _isLoading ? null : () => setState(() => _step = 'confirm'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
@@ -906,9 +1083,7 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
                     Expanded(
                       flex: 2,
                       child: ElevatedButton(
-                        onPressed: _productionPlan!.allStockSufficient
-                            ? () => setState(() => _step = 'confirm')
-                            : null,
+                        onPressed: _isLoading ? null : () => setState(() => _step = 'confirm'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
@@ -942,44 +1117,111 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
         }
         
         if (_step == 'confirm') {
-          return Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          setState(() => _step = 'preview');
-                        },
-                  child: const Text('Kembali'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _handleConfirm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
+          if (isWide) {
+            return Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () {
+                            setState(() => _step = 'preview');
+                          },
+                    child: const Text('Kembali'),
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _handleSchedule,
+                    icon: const Icon(Icons.event_available),
+                    label: const Text('Jadualkan'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: (_isLoading || !_canConfirmProduction) ? null : _handleConfirm,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.check, size: 20, color: Colors.white),
+                              SizedBox(width: 8),
+                              Text('Sahkan Produksi', style: TextStyle(color: Colors.white)),
+                            ],
                           ),
-                        )
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.check, size: 20, color: Colors.white),
-                            SizedBox(width: 8),
-                            Text('Sahkan Produksi', style: TextStyle(color: Colors.white)),
-                          ],
-                        ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isLoading
+                          ? null
+                          : () {
+                              setState(() => _step = 'preview');
+                            },
+                      child: const Text('Kembali'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: (_isLoading || !_canConfirmProduction) ? null : _handleConfirm,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.check, size: 20, color: Colors.white),
+                                SizedBox(width: 8),
+                                Text('Sahkan Produksi', style: TextStyle(color: Colors.white)),
+                              ],
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _handleSchedule,
+                  icon: const Icon(Icons.event_available),
+                  label: const Text('Jadualkan (Planner)'),
                 ),
               ),
             ],

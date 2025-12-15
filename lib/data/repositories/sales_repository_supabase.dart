@@ -99,79 +99,20 @@ class SalesRepositorySupabase {
     String? notes,
     String? deliveryAddress,
   }) async {
-    // Get current user ID
-    final userId = supabase.auth.currentUser?.id;
-    if (userId == null) {
-      throw Exception('User not authenticated');
-    }
+    // Atomic DB transaction: create sale + deduct FIFO in one RPC
+    final saleId = await supabase.rpc(
+      'create_sale_and_deduct_fifo',
+      params: {
+        'p_customer_name': customerName,
+        'p_channel': channel,
+        'p_items': items,
+        'p_discount_amount': discountAmount ?? 0,
+        'p_notes': notes,
+        'p_delivery_address': deliveryAddress,
+      },
+    ) as String;
 
-    // Check stock availability for all items BEFORE creating sale
-    final productionRepo = ProductionRepository(supabase);
-    for (final item in items) {
-      final productId = item['product_id'] as String;
-      final quantityNeeded = (item['quantity'] as num).toDouble();
-      final productName = item['product_name'] as String? ?? 'Unknown';
-      
-      // Get total available stock for this product
-      final availableStock = await productionRepo.getTotalRemainingForProduct(productId);
-      
-      if (availableStock < quantityNeeded) {
-        throw Exception(
-          'Insufficient stock for "$productName": Available: $availableStock, Required: $quantityNeeded'
-        );
-      }
-    }
-
-    // Calculate totals
-    final totalAmount = items.fold<double>(
-      0,
-      (sum, item) => sum + (item['quantity'] * item['unit_price']),
-    );
-
-    final finalAmount = totalAmount - (discountAmount ?? 0);
-
-    // Insert sale
-    final sale = await supabase.from('sales').insert({
-      'business_owner_id': userId,
-      'customer_name': customerName,
-      'channel': channel,
-      'total_amount': totalAmount,
-      'discount_amount': discountAmount,
-      'final_amount': finalAmount,
-      'notes': notes,
-      'delivery_address': deliveryAddress,
-    }).select().single();
-
-    // Insert sale items
-    final saleItems = items.map((item) => {
-      'sale_id': sale['id'],
-      'product_id': item['product_id'],
-      'product_name': item['product_name'],
-      'quantity': item['quantity'],
-      'unit_price': item['unit_price'],
-      'subtotal': item['quantity'] * item['unit_price'],
-    }).toList();
-
-    await supabase.from('sale_items').insert(saleItems);
-
-    // Deduct stock from production batches (FIFO)
-    for (final item in items) {
-      final productId = item['product_id'] as String;
-      final quantityToDeduct = (item['quantity'] as num).toDouble();
-      
-      // Use FIFO to deduct from oldest batches first
-      // Log with reference to this sale for tracking
-      await productionRepo.deductFIFO(
-        productId,
-        quantityToDeduct,
-        referenceId: sale['id'],
-        referenceType: 'sale',
-        notes: 'Jualan #${sale['id'].toString().substring(0, 8)}',
-      );
-    }
-
-    // Return sale with items
-    return getSale(sale['id']);
+    return getSale(saleId);
   }
 
   /// Get sale by ID with items

@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/utils/unit_conversion.dart';
+import '../../../core/widgets/stock_item_search_field.dart';
 import '../../../core/services/image_upload_service.dart';
 import '../../../data/models/stock_item.dart';
 import '../../../data/models/category.dart';
@@ -699,38 +700,16 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
           const SizedBox(height: 12),
           
           // Stock Item Dropdown
-          DropdownButtonFormField<String>(
-            value: item.stockItemId,
-            decoration: InputDecoration(
-              labelText: 'Pilih Bahan',
-              prefixIcon: const Icon(Icons.inventory),
-              filled: true,
-              fillColor: Colors.grey[50],
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            items: _stockItems.map((stock) {
-              final pricePerUnit = stock.purchasePrice / stock.packageSize;
-              return DropdownMenuItem(
-                value: stock.id,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(stock.name, style: const TextStyle(fontWeight: FontWeight.w500)),
-                    Text(
-                      '${stock.packageSize}${stock.unit} @ RM${stock.purchasePrice.toStringAsFixed(2)} (RM${pricePerUnit.toStringAsFixed(2)}/${stock.unit})',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
+          StockItemSearchField(
+            items: _stockItems,
+            value: selectedStock,
+            labelText: 'Cari & Pilih Bahan',
+            helperText: 'Taip nama bahan untuk cari cepat.',
             onChanged: (value) {
               setState(() {
-                item.stockItemId = value;
+                item.stockItemId = value?.id;
                 if (value != null) {
-                  final stock = _stockItems.firstWhere((s) => s.id == value);
-                  item.usageUnit = stock.unit;
+                  item.usageUnit = value.unit;
                 }
               });
               _calculateCosts();
