@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/receipt_storage_service.dart';
@@ -950,41 +951,34 @@ class _ExpensesPageState extends State<ExpensesPage> {
                             ),
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
+                        // Download button
+                        IconButton(
+                          onPressed: () async {
+                            final uri = Uri.parse(signedUrl);
+                            if (await canLaunchUrl(uri)) {
+                              await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                            }
+                          },
+                          icon: const Icon(
+                            Icons.download,
+                            color: Colors.white,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.lock,
-                                color: Colors.white,
-                                size: 12,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'Selamat',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ],
-                          ),
+                          tooltip: 'Muat Turun',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 12),
+                        // Close button
                         IconButton(
                           onPressed: () => Navigator.pop(context),
                           icon: const Icon(
                             Icons.close,
                             color: Colors.white,
                           ),
+                          tooltip: 'Tutup',
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                         ),

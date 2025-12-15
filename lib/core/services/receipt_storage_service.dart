@@ -8,8 +8,8 @@ import '../supabase/supabase_client.dart';
 class ReceiptStorageService {
   static const String _bucketName = 'receipts';
   
-  /// Default signed URL expiry duration (1 hour)
-  static const int _signedUrlExpirySeconds = 3600;
+  /// Default signed URL expiry duration (7 days)
+  static const int _signedUrlExpirySeconds = 604800;
 
   /// Upload receipt image to Supabase Storage
   /// 
