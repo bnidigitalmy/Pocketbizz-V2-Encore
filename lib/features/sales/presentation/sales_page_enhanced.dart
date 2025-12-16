@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/repositories/sales_repository_supabase.dart';
 import 'sale_details_dialog.dart';
 import 'create_sale_page_enhanced.dart';
@@ -683,18 +684,21 @@ class _SalesPageEnhancedState extends State<SalesPageEnhanced> {
   }
 
   String _formatDateTime(DateTime dateTime) {
-    final now = DateTime.now();
+    // Convert UTC to local time
+    final localDateTime = DateTimeHelper.toLocalTime(dateTime);
+    
+    final now = DateTimeHelper.now();
     final today = DateTime(now.year, now.month, now.day);
-    final date = DateTime(dateTime.year, dateTime.month, dateTime.day);
+    final date = DateTime(localDateTime.year, localDateTime.month, localDateTime.day);
 
-    final timeStr = DateFormat('HH:mm').format(dateTime);
+    final timeStr = DateFormat('HH:mm').format(localDateTime);
 
     if (date == today) {
-      return 'Hari ini, $timeStr';
+      return 'Hari ini $timeStr';
     } else if (date == today.subtract(const Duration(days: 1))) {
-      return 'Semalam, $timeStr';
+      return 'Semalam $timeStr';
     } else {
-      return DateFormat('dd/MM/yyyy, HH:mm', 'ms').format(dateTime);
+      return DateFormat('dd/MM/yyyy, HH:mm', 'ms').format(localDateTime);
     }
   }
 

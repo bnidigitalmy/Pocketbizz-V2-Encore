@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/repositories/sales_repository_supabase.dart';
 
 /// Sale Details Dialog
@@ -90,7 +91,7 @@ class SaleDetailsDialog extends StatelessWidget {
                     const SizedBox(height: 12),
                     _buildInfoRow(
                       'Tarikh & Masa',
-                      DateFormat('dd/MM/yyyy, HH:mm', 'ms').format(sale.createdAt),
+                      DateTimeHelper.formatDateTime(sale.createdAt, pattern: 'dd/MM/yyyy, HH:mm'),
                       Icons.access_time,
                     ),
                     if (sale.notes != null && sale.notes!.isNotEmpty) ...[

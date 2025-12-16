@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/repositories/deliveries_repository_supabase.dart';
 import '../../../data/repositories/vendors_repository_supabase.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
@@ -823,7 +824,7 @@ class _DeliveriesPageState extends State<DeliveriesPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    DateFormat('dd MMM yyyy', 'ms_MY').format(delivery.deliveryDate),
+                    DateFormat('dd MMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(delivery.deliveryDate)),
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey[600],
@@ -1075,7 +1076,7 @@ class _DeliveriesPageState extends State<DeliveriesPage> {
     }
     
     message += 'Vendor: *${delivery.vendorName}*\n' +
-        'Tarikh: ${DateFormat('dd MMMM yyyy', 'ms_MY').format(delivery.deliveryDate)}\n' +
+        'Tarikh: ${DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(delivery.deliveryDate))}\n' +
         'Status: ${statusLabels[delivery.status] ?? delivery.status}\n' +
         'Jumlah: RM ${delivery.totalAmount.toStringAsFixed(2)}\n\n' +
         '*Senarai Produk:*\n';

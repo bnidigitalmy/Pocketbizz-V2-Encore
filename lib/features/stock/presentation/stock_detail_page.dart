@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart' show supabase;
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/repositories/stock_repository_supabase.dart';
 import '../../../data/models/stock_item.dart';
 import '../../../data/models/stock_movement.dart';
@@ -316,7 +317,7 @@ class _StockDetailPageState extends State<StockDetailPage> with SingleTickerProv
 
   Widget _buildMovementCard(StockMovement movement) {
     final isIncrease = movement.isIncrease;
-    final dateFormat = DateFormat('dd MMM yyyy, HH:mm');
+    final localCreatedAt = DateTimeHelper.toLocalTime(movement.createdAt);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -359,7 +360,7 @@ class _StockDetailPageState extends State<StockDetailPage> with SingleTickerProv
                         ),
                       ),
                       Text(
-                        dateFormat.format(movement.createdAt),
+                        DateFormat('dd MMM yyyy, HH:mm').format(localCreatedAt),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[600],

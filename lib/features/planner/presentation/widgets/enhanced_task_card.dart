@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/date_time_helper.dart';
 import '../../../../data/models/planner_task.dart';
 
 class EnhancedTaskCard extends StatelessWidget {
@@ -157,7 +158,7 @@ class EnhancedTaskCard extends StatelessWidget {
                     Icon(Icons.schedule, size: 14, color: Colors.grey.shade600),
                     const SizedBox(width: 4),
                     Text(
-                      DateFormat('d MMM, h:mm a', 'ms_MY').format(task.dueAt!),
+                      DateFormat('d MMM, h:mm a', 'ms_MY').format(DateTimeHelper.toLocalTime(task.dueAt!)),
                       style: TextStyle(
                         fontSize: 12,
                         color: task.isOverdue ? Colors.red : Colors.grey.shade700,

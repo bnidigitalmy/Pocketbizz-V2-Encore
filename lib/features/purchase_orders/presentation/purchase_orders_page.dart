@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/models/purchase_order.dart';
 import '../../../data/repositories/purchase_order_repository_supabase.dart';
 import '../../../data/repositories/business_profile_repository_supabase.dart';
@@ -379,7 +380,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
       );
       
       // Create message with PDF info
-      final date = DateFormat('dd MMMM yyyy', 'ms_MY').format(po.createdAt);
+      final date = DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(po.createdAt));
       
       var message = '📋 *PURCHASE ORDER*\n';
       message += 'PocketBizz\n\n';
@@ -610,7 +611,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
     // Create a simple shopping list format (no PO details, just items)
     var list = '🛒 *SENARAI BELIAN*\n';
     list += 'PO: ${po.poNumber}\n';
-    list += 'Tarikh: ${DateFormat('dd MMMM yyyy', 'ms_MY').format(po.createdAt)}\n\n';
+    list += 'Tarikh: ${DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(po.createdAt))}\n\n';
     
     list += '*Item yang perlu dibeli:*\n\n';
     
@@ -651,7 +652,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
   }
 
   Future<void> _copyAsText(PurchaseOrder po) async {
-    final date = DateFormat('dd MMMM yyyy', 'ms_MY').format(po.createdAt);
+    final date = DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(po.createdAt));
     
     var text = 'PURCHASE ORDER\n';
     text += 'PocketBizz\n\n';
@@ -1191,7 +1192,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
                           ),
                         ),
                         Text(
-                          'Tarikh: ${DateFormat('dd MMM yyyy', 'ms_MY').format(po.createdAt)}',
+                          'Tarikh: ${DateFormat('dd MMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(po.createdAt))}',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -1420,7 +1421,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
               _buildInfoRow('Email', po.supplierEmail!),
             _buildInfoRow(
               'Tarikh Dibuat',
-              DateFormat('dd MMMM yyyy', 'ms_MY').format(po.createdAt),
+              DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(po.createdAt)),
             ),
             const SizedBox(height: 16),
             

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/date_time_helper.dart';
 import '../../../../data/models/planner_task.dart';
 import '../../../../data/models/planner_subtask.dart';
 import '../../../../data/models/planner_comment.dart';
@@ -557,7 +558,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                               style: const TextStyle(fontSize: 14),
                             ),
                             Text(
-                              DateFormat('d MMM, h:mm a', 'ms_MY').format(comment.createdAt),
+                              DateFormat('d MMM, h:mm a', 'ms_MY').format(DateTimeHelper.toLocalTime(comment.createdAt)),
                               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                             ),
                           ],

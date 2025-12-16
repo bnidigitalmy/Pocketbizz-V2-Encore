@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/date_time_helper.dart';
 import '../../data/models/subscription.dart';
 import '../../data/models/subscription_plan.dart';
 import '../../data/repositories/subscription_repository_supabase.dart';
@@ -360,7 +361,7 @@ class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
                                     )),
                                     DataCell(Text(sub.planName)),
                                     DataCell(Text('${sub.durationMonths} month${sub.durationMonths > 1 ? 's' : ''}')),
-                                    DataCell(Text(DateFormat('dd MMM yyyy', 'ms').format(sub.startedAt ?? sub.createdAt))),
+                                    DataCell(Text(DateFormat('dd MMM yyyy', 'ms').format(DateTimeHelper.toLocalTime(sub.startedAt ?? sub.createdAt)))),
                                     DataCell(Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [

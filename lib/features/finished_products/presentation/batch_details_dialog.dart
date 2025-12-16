@@ -2,6 +2,7 @@
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/models/finished_product.dart';
 import '../../../data/repositories/finished_products_repository_supabase.dart';
 import '../../../data/repositories/production_repository_supabase.dart';
@@ -553,7 +554,7 @@ class _BatchDetailsDialogState extends State<BatchDetailsDialog> {
                       ),
                     ),
                     Text(
-                      DateFormat('dd MMM yyyy, hh:mm a', 'ms_MY').format(createdAt),
+                      DateFormat('dd MMM yyyy, hh:mm a', 'ms_MY').format(DateTimeHelper.toLocalTime(createdAt)),
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey[600],

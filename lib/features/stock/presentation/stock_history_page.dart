@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/models/stock_item.dart';
 import '../../../data/models/stock_movement.dart';
 
@@ -274,7 +275,7 @@ class _StockHistoryPageState extends State<StockHistoryPage> {
                   ),
                 ),
                 Text(
-                  DateFormat('dd/MM/yyyy HH:mm').format(movement.createdAt),
+                  DateTimeHelper.formatDateTime(movement.createdAt, pattern: 'dd/MM/yyyy HH:mm'),
                   style: TextStyle(
                     color: Colors.grey[600],
                     fontSize: 12,

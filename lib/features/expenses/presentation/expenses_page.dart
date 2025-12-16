@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/receipt_storage_service.dart';
+import '../../../core/utils/date_time_helper.dart';
 import '../../../data/models/expense.dart';
 import '../../../data/repositories/expenses_repository_supabase.dart';
 import 'receipt_scan_page.dart';
@@ -1040,7 +1041,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
                     Divider(color: Colors.grey[200]),
                     const SizedBox(height: 12),
                     Text(
-                      'Direkod pada: ${DateFormat('dd/MM/yyyy HH:mm').format(expense.createdAt)}',
+                      'Direkod pada: ${DateTimeHelper.formatDateTime(expense.createdAt, pattern: 'dd/MM/yyyy HH:mm')}',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey[500],
