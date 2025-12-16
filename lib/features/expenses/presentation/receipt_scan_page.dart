@@ -189,7 +189,7 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
 
       // Call Supabase Edge Function for OCR
       final response = await supabase.functions.invoke(
-        'ocr-receipt',
+        'OCR-Cloud-Vision',
         body: {'imageBase64': base64Image},
       );
 
