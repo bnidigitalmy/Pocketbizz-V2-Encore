@@ -84,8 +84,8 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
   
   // Zoom controls
   double _zoomLevel = 1.0;
-  double _minZoom = 1.0;
-  double _maxZoom = 5.0;
+  double _minZoom = 0.5;  // Allow zoom out to 0.5x for large receipts
+  double _maxZoom = 4.0;
   bool _supportsZoom = false;
 
   // States
@@ -659,11 +659,11 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
             ),
           ),
 
-        // Zoom controls (right side)
+        // Zoom controls (right side - positioned for easy thumb access)
         if (_isCameraReady)
           Positioned(
             right: 16,
-            top: MediaQuery.of(context).size.height * 0.3,
+            bottom: 180, // Lower position for one-hand operation
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
               decoration: BoxDecoration(
