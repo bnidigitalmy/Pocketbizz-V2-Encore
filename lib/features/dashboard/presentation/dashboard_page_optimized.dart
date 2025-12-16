@@ -281,8 +281,6 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
   @override
   Widget build(BuildContext context) {
     final user = supabase.auth.currentUser;
-    final now = DateTime.now();
-    final hour = now.hour;
 
     return Scaffold(
       backgroundColor: AppColors.background,
