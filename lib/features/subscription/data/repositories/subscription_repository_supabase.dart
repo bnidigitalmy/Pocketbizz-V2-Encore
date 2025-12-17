@@ -23,6 +23,20 @@ import 'dart:convert';
 class SubscriptionRepositorySupabase {
   final SupabaseClient _supabase = supabase;
 
+  /// Helper: Add months to a date using calendar months (not fixed 30 days)
+  /// Example: Jan 31 + 1 month = Feb 28/29 (not Mar 2)
+  DateTime _addCalendarMonths(DateTime date, int months) {
+    final newYear = date.year + (date.month + months - 1) ~/ 12;
+    final newMonth = ((date.month + months - 1) % 12) + 1;
+    final newDay = date.day;
+    
+    // Handle end-of-month edge cases (e.g., Jan 31 + 1 month = Feb 28/29)
+    final daysInNewMonth = DateTime(newYear, newMonth + 1, 0).day;
+    final adjustedDay = newDay > daysInNewMonth ? daysInNewMonth : newDay;
+    
+    return DateTime(newYear, newMonth, adjustedDay, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
+  }
+
   /// Get plan by id
   Future<SubscriptionPlan> getPlanById(String planId) async {
     try {
@@ -211,6 +225,19 @@ class SubscriptionRepositorySupabase {
         throw Exception('User already has an active subscription or trial');
       }
 
+      // Check if user has ever had a trial (prevent reuse)
+      final previousTrials = await _supabase
+          .from('subscriptions')
+          .select('has_ever_had_trial')
+          .eq('user_id', userId)
+          .eq('has_ever_had_trial', true)
+          .limit(1)
+          .maybeSingle();
+      
+      if (previousTrials != null) {
+        throw Exception('Trial has already been used. Please subscribe to continue using PocketBizz.');
+      }
+
       // Get 1 month plan for trial
       final plans = await getAvailablePlans();
       final oneMonthPlan = plans.firstWhere(
@@ -239,6 +266,7 @@ class SubscriptionRepositorySupabase {
             'trial_started_at': now.toIso8601String(),
             'trial_ends_at': trialEndsAt.toIso8601String(),
             'expires_at': trialEndsAt.toIso8601String(),
+            'has_ever_had_trial': true, // Mark that user has used trial
             'auto_renew': false,
           })
           .select('''
@@ -295,9 +323,9 @@ class SubscriptionRepositorySupabase {
       
       final discountApplied = (pricePerMonth * plan.durationMonths) - calculatedTotal;
 
-      // Calculate expiry date
+      // Calculate expiry date using calendar months
       final now = DateTime.now();
-      final expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      final expiresAt = _addCalendarMonths(now, plan.durationMonths);
       final graceUntil = expiresAt.add(const Duration(days: 7));
 
       // Create subscription
@@ -388,6 +416,7 @@ class SubscriptionRepositorySupabase {
       // Get subscription to check if active and determine limits
       final subscription = await getUserSubscription();
       final isActive = subscription?.isActive ?? false;
+      final isTrial = subscription?.isOnTrial ?? false;
 
       // Count actual usage
       final usageCounts = await Future.wait([
@@ -401,11 +430,12 @@ class SubscriptionRepositorySupabase {
       final transactionsCount = usageCounts[2] as int;
 
       // Set limits based on subscription status
-      // Active subscriptions: unlimited (999999)
-      // Trial/Expired: limited (50 products, 100 stock items, 100 transactions)
-      final maxProducts = isActive ? 999999 : 50;
-      final maxStockItems = isActive ? 999999 : 100;
-      final maxTransactions = isActive ? 999999 : 100;
+      // Trial: 10 products, 50 stock items, 100 transactions
+      // Active subscriptions: 500 products, 2000 stock items, 10000 transactions
+      // Expired/Grace: Same as trial limits (10/50/100)
+      final maxProducts = isTrial ? 10 : (isActive ? 500 : 10);
+      final maxStockItems = isTrial ? 50 : (isActive ? 2000 : 50);
+      final maxTransactions = isTrial ? 100 : (isActive ? 10000 : 100);
 
       return PlanLimits(
         products: LimitInfo(current: productsCount, max: maxProducts),
@@ -548,11 +578,11 @@ class SubscriptionRepositorySupabase {
         if (currentSub == null || currentSub.status != SubscriptionStatus.active) {
           throw Exception('No active subscription to extend');
         }
-        // Add new duration to existing expiry date
-        expiresAt = currentSub.expiresAt.add(Duration(days: plan.durationMonths * 30));
+        // Add new duration to existing expiry date using calendar months
+        expiresAt = _addCalendarMonths(currentSub.expiresAt, plan.durationMonths);
       } else {
-        // For new subscription: start from now
-        expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+        // For new subscription: start from now using calendar months
+        expiresAt = _addCalendarMonths(now, plan.durationMonths);
       }
       
       final graceUntil = expiresAt.add(const Duration(days: 7));
@@ -796,8 +826,8 @@ class SubscriptionRepositorySupabase {
         }
       }
       
-      // For new subscription (not extend): calculate from now
-      expiresAt = now.add(Duration(days: plan.durationMonths * 30));
+      // For new subscription (not extend): calculate from now using calendar months
+      expiresAt = _addCalendarMonths(now, plan.durationMonths);
       graceUntil = expiresAt.add(const Duration(days: 7));
 
       // Expire any existing active/trial for this user (to satisfy unique index)
@@ -1109,8 +1139,7 @@ class SubscriptionRepositorySupabase {
           (json['payment_status'] as String?) == 'completed' &&
           startedAt != null &&
           !now.isBefore(startedAt)) {
-      final newExpires =
-          startedAt.add(Duration(days: (json['duration_months'] as int) * 30));
+      final newExpires = _addCalendarMonths(startedAt, json['duration_months'] as int);
         final newGrace = newExpires.add(const Duration(days: 7));
         await _supabase
             .from('subscriptions')
@@ -1130,6 +1159,8 @@ class SubscriptionRepositorySupabase {
       // If active but already past expiry -> move to grace
       if (status == 'active' && now.isAfter(expiresAt)) {
         graceUntil ??= expiresAt.add(const Duration(days: 7));
+        final graceEmailSent = json['grace_email_sent'] as bool? ?? false;
+        
         await _supabase.from('subscriptions').update({
           'status': 'grace',
           'grace_until': graceUntil.toIso8601String(),
@@ -1138,17 +1169,26 @@ class SubscriptionRepositorySupabase {
         json['status'] = 'grace';
         json['grace_until'] = graceUntil.toIso8601String();
 
-        // Send grace reminder email once at transition
-        await _sendEmailNotification(
-          subject: 'Langganan Dalam Tempoh Tangguh',
-          html:
-              '<p>Langganan anda telah memasuki tempoh tangguh (grace period).</p><p>Sila lengkapkan pembayaran dalam 7 hari untuk elak tamat.</p>',
-          type: 'grace_reminder',
-          meta: {
-            'subscription_id': json['id'],
-            'grace_until': graceUntil.toIso8601String(),
-          },
-        );
+        // Send grace reminder email once at transition (prevent duplicates)
+        if (!graceEmailSent) {
+          await _sendEmailNotification(
+            subject: 'Langganan Dalam Tempoh Tangguh',
+            html:
+                '<p>Langganan anda telah memasuki tempoh tangguh (grace period).</p><p>Sila lengkapkan pembayaran dalam 7 hari untuk elak tamat.</p>',
+            type: 'grace_reminder',
+            meta: {
+              'subscription_id': json['id'],
+              'grace_until': graceUntil.toIso8601String(),
+            },
+          );
+          
+          // Mark email as sent
+          await _supabase.from('subscriptions').update({
+            'grace_email_sent': true,
+            'updated_at': nowIso,
+          }).eq('id', json['id'] as String);
+          json['grace_email_sent'] = true;
+        }
       }
 
       // If grace but past grace_until -> expire
@@ -1239,7 +1279,7 @@ class SubscriptionRepositorySupabase {
       // No charge. If downgrade/sidegrade, schedule at next cycle end; else activate now.
       if (isDowngradeOrSidegrade) {
         final scheduledStart = current.expiresAt;
-        final expiresAt = scheduledStart.add(Duration(days: quote.durationMonths * 30));
+        final expiresAt = _addCalendarMonths(scheduledStart, quote.durationMonths);
         final graceUntil = expiresAt.add(const Duration(days: 7));
 
         final response = await _supabase
@@ -1305,7 +1345,7 @@ class SubscriptionRepositorySupabase {
       // No charge and upgrade: directly activate now
       await _expireCurrent();
 
-      final expiresAt = now.add(Duration(days: quote.durationMonths * 30));
+      final expiresAt = _addCalendarMonths(now, quote.durationMonths);
       final graceUntil = expiresAt.add(const Duration(days: 7));
 
       final response = await _supabase
@@ -1368,7 +1408,7 @@ class SubscriptionRepositorySupabase {
     // amountDue > 0: create pending payment session for proration
     final plan = await getPlanById(targetPlanId);
     final discountApplied = (quote.pricePerMonth * plan.durationMonths) - quote.newTotal;
-    final pendingExpiresAt = now.add(Duration(days: plan.durationMonths * 30));
+    final pendingExpiresAt = _addCalendarMonths(now, plan.durationMonths);
     final pendingGraceUntil = pendingExpiresAt.add(const Duration(days: 7));
 
     await _expireCurrent();
@@ -2028,9 +2068,9 @@ class SubscriptionRepositorySupabase {
       
       final discountApplied = (pricePerMonth * durationMonths) - calculatedTotal;
 
-      // Calculate expiry date
+      // Calculate expiry date using calendar months
       final now = DateTime.now();
-      final expiresAt = now.add(Duration(days: durationMonths * 30));
+      final expiresAt = _addCalendarMonths(now, durationMonths);
       final graceUntil = expiresAt.add(const Duration(days: 7));
       final nowIso = now.toIso8601String();
 
@@ -2120,8 +2160,8 @@ class SubscriptionRepositorySupabase {
       final now = DateTime.now();
       final nowIso = now.toIso8601String();
 
-      // Calculate new expiry date
-      final newExpiresAt = currentExpiresAt.add(Duration(days: extensionMonths * 30));
+      // Calculate new expiry date using calendar months
+      final newExpiresAt = _addCalendarMonths(currentExpiresAt, extensionMonths);
       final newGraceUntil = newExpiresAt.add(const Duration(days: 7));
 
       // Calculate extension price

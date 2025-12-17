@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/stock_item.dart';
 import '../models/stock_movement.dart';
 import '../models/stock_item_batch.dart';
+import '../../features/subscription/data/repositories/subscription_repository_supabase.dart';
 
 /// Stock Repository for managing stock items and movements
 class StockRepository {
@@ -109,6 +110,16 @@ class StockRepository {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
         throw Exception('User not authenticated');
+      }
+
+      // Check subscription limits before creating stock item
+      final subscriptionRepo = SubscriptionRepositorySupabase();
+      final limits = await subscriptionRepo.getPlanLimits();
+      if (limits.stockItems.current >= limits.stockItems.max && !limits.stockItems.isUnlimited) {
+        throw Exception(
+          'Had stok item telah dicapai (${limits.stockItems.current}/${limits.stockItems.max}). '
+          'Sila naik taraf langganan anda untuk menambah lebih banyak stok item.'
+        );
       }
 
       final data = {

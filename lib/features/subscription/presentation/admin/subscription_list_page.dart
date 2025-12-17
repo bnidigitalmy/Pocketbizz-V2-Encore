@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/date_time_helper.dart';
+import '../../../../core/supabase/supabase_client.dart';
 import '../../data/models/subscription.dart';
 import '../../data/models/subscription_plan.dart';
+import '../../data/models/subscription_payment.dart';
 import '../../data/repositories/subscription_repository_supabase.dart';
 import '../../services/subscription_service.dart';
 
@@ -37,6 +39,19 @@ class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
   bool _showExtendDialog = false;
   String _extendDuration = '3';
   String _extendNotes = '';
+
+  // Pause dialog state
+  bool _showPauseDialog = false;
+  String _pauseDays = '7';
+  String _pauseReason = '';
+
+  // Refund dialog state
+  bool _showRefundDialog = false;
+  List<SubscriptionPayment> _subscriptionPayments = [];
+  SubscriptionPayment? _selectedPayment;
+  bool _isFullRefund = true;
+  String _refundAmount = '';
+  String _refundReason = '';
 
   // Package prices (matching database: RM 39/month standard)
   // Early adopter: RM 29/month (calculated dynamically)
@@ -390,19 +405,77 @@ class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
                                     DataCell(_buildProviderBadge(sub.paymentGateway)),
                                     DataCell(_buildStatusBadge(sub.status, sub.status == SubscriptionStatus.expired || sub.expiresAt.isBefore(DateTime.now()))),
                                     DataCell(
-                                      OutlinedButton(
-                                        onPressed: sub.status == SubscriptionStatus.cancelled
-                                            ? null
-                                            : () {
-                                                setState(() {
-                                                  _selectedSubscription = sub;
-                                                  _showExtendDialog = true;
-                                                });
-                                              },
-                                        style: OutlinedButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      PopupMenuButton<String>(
+                                        onSelected: (value) {
+                                          setState(() {
+                                            _selectedSubscription = sub;
+                                            if (value == 'extend') {
+                                              _showExtendDialog = true;
+                                            } else if (value == 'pause') {
+                                              _showPauseDialog = true;
+                                            } else if (value == 'resume') {
+                                              _handleResumeSubscription(sub);
+                                            } else if (value == 'refund') {
+                                              _loadPaymentsForRefund(sub);
+                                            }
+                                          });
+                                        },
+                                        itemBuilder: (context) => [
+                                          if (sub.status != SubscriptionStatus.cancelled)
+                                            const PopupMenuItem(
+                                              value: 'extend',
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.schedule, size: 16),
+                                                  SizedBox(width: 8),
+                                                  Text('Extend'),
+                                                ],
+                                              ),
+                                            ),
+                                          if (sub.status == SubscriptionStatus.active && !sub.isPaused)
+                                            const PopupMenuItem(
+                                              value: 'pause',
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.pause, size: 16, color: Colors.orange),
+                                                  SizedBox(width: 8),
+                                                  Text('Pause'),
+                                                ],
+                                              ),
+                                            ),
+                                          if (sub.status == SubscriptionStatus.paused || sub.isPaused)
+                                            const PopupMenuItem(
+                                              value: 'resume',
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.play_arrow, size: 16, color: Colors.green),
+                                                  SizedBox(width: 8),
+                                                  Text('Resume'),
+                                                ],
+                                              ),
+                                            ),
+                                          const PopupMenuItem(
+                                            value: 'refund',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.undo, size: 16, color: Colors.red),
+                                                SizedBox(width: 8),
+                                                Text('Refund'),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                        child: const Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text('Actions', style: TextStyle(fontSize: 12)),
+                                              SizedBox(width: 4),
+                                              Icon(Icons.arrow_drop_down, size: 16),
+                                            ],
+                                          ),
                                         ),
-                                        child: const Text('Extend', style: TextStyle(fontSize: 12)),
                                       ),
                                     ),
                                   ],
@@ -930,6 +1003,409 @@ class _AdminSubscriptionListPageState extends State<AdminSubscriptionListPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('❌ Failed to extend: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isExtending = false);
+      }
+    }
+  }
+
+  // ============================================================================
+  // PAUSE/RESUME HANDLERS
+  // ============================================================================
+
+  Widget _buildPauseDialog() {
+    return Dialog(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 500),
+        padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Pause Subscription',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Pause subscription untuk ${_selectedSubscription?.userId.substring(0, 8)}...',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 24),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'Days to Pause',
+                  border: OutlineInputBorder(),
+                  helperText: 'Subscription expiry akan dipanjangkan dengan bilangan hari ini',
+                ),
+                keyboardType: TextInputType.number,
+                controller: TextEditingController(text: _pauseDays),
+                onChanged: (value) => _pauseDays = value,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'Reason (Optional)',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                controller: TextEditingController(text: _pauseReason),
+                onChanged: (value) => _pauseReason = value,
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _showPauseDialog = false;
+                        _pauseDays = '7';
+                        _pauseReason = '';
+                      });
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _isExtending ? null : _handlePauseSubscription,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                    ),
+                    child: const Text('Pause'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handlePauseSubscription() async {
+    if (_selectedSubscription == null) return;
+
+    setState(() => _isExtending = true);
+    try {
+      await _service.pauseSubscription(
+        subscriptionId: _selectedSubscription!.id,
+        daysToPause: int.parse(_pauseDays),
+        reason: _pauseReason.isEmpty ? null : _pauseReason,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Subscription paused successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {
+          _showPauseDialog = false;
+          _selectedSubscription = null;
+          _pauseDays = '7';
+          _pauseReason = '';
+        });
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to pause: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isExtending = false);
+      }
+    }
+  }
+
+  Future<void> _handleResumeSubscription(Subscription subscription) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Resume Subscription?'),
+        content: Text('Resume subscription untuk ${subscription.userId.substring(0, 8)}...?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+            ),
+            child: const Text('Resume'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isExtending = true);
+    try {
+      await _service.resumeSubscription(subscription.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Subscription resumed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to resume: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isExtending = false);
+      }
+    }
+  }
+
+  // ============================================================================
+  // REFUND HANDLERS
+  // ============================================================================
+
+  Future<void> _loadPaymentsForRefund(Subscription subscription) async {
+    setState(() => _isLoading = true);
+    try {
+      // Load payments for this subscription (admin can query without user_id filter)
+      final response = await supabase
+          .from('subscription_payments')
+          .select()
+          .eq('subscription_id', subscription.id)
+          .eq('status', 'completed')
+          .order('created_at', ascending: false);
+
+      final payments = (response as List)
+          .map((json) => SubscriptionPayment.fromJson(json as Map<String, dynamic>))
+          .where((p) => !p.hasRefund) // Only show payments that haven't been refunded
+          .toList() as List<SubscriptionPayment>;
+
+      if (mounted) {
+        setState(() {
+          _subscriptionPayments = payments;
+          _selectedPayment = payments.isNotEmpty ? payments.first : null;
+          _showRefundDialog = true;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading payments: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildRefundDialog() {
+    return Dialog(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 600),
+        padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Process Refund',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Refund untuk subscription ${_selectedSubscription?.userId.substring(0, 8)}...',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (_subscriptionPayments.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No refundable payments found'),
+                )
+              else ...[
+                const Text(
+                  'Select Payment',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<SubscriptionPayment>(
+                  value: _selectedPayment,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _subscriptionPayments.map((payment) {
+                    return DropdownMenuItem(
+                      value: payment,
+                      child: Text(
+                        'RM ${payment.amount.toStringAsFixed(2)} - ${DateFormat('dd MMM yyyy', 'ms').format(DateTimeHelper.toLocalTime(payment.paidAt ?? payment.createdAt))}',
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPayment = value;
+                      if (value != null) {
+                        _refundAmount = value.amount.toStringAsFixed(2);
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                CheckboxListTile(
+                  title: const Text('Full Refund'),
+                  value: _isFullRefund,
+                  onChanged: (value) {
+                    setState(() {
+                      _isFullRefund = value ?? true;
+                      if (_isFullRefund && _selectedPayment != null) {
+                        _refundAmount = _selectedPayment!.amount.toStringAsFixed(2);
+                      }
+                    });
+                  },
+                ),
+                if (!_isFullRefund) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    decoration: InputDecoration(
+                      labelText: 'Refund Amount (RM)',
+                      border: const OutlineInputBorder(),
+                      helperText: _selectedPayment != null
+                          ? 'Max: RM ${_selectedPayment!.amount.toStringAsFixed(2)}'
+                          : null,
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    controller: TextEditingController(text: _refundAmount),
+                    onChanged: (value) => _refundAmount = value,
+                  ),
+                ],
+                const SizedBox(height: 16),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Refund Reason',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                  controller: TextEditingController(text: _refundReason),
+                  onChanged: (value) => _refundReason = value,
+                ),
+              ],
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _showRefundDialog = false;
+                        _selectedPayment = null;
+                        _subscriptionPayments = [];
+                        _isFullRefund = true;
+                        _refundAmount = '';
+                        _refundReason = '';
+                      });
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _subscriptionPayments.isEmpty || _isExtending
+                        ? null
+                        : _handleRefundPayment,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                    ),
+                    child: const Text('Process Refund'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleRefundPayment() async {
+    if (_selectedPayment == null) return;
+
+    final amount = double.tryParse(_refundAmount) ?? 0.0;
+    if (amount <= 0 || amount > _selectedPayment!.amount) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid refund amount')),
+      );
+      return;
+    }
+
+    setState(() => _isExtending = true);
+    try {
+      await _service.processRefund(
+        paymentId: _selectedPayment!.id,
+        refundAmount: amount,
+        reason: _refundReason.isEmpty ? 'Admin refund' : _refundReason,
+        fullRefund: _isFullRefund,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Refund processed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {
+          _showRefundDialog = false;
+          _selectedPayment = null;
+          _subscriptionPayments = [];
+          _isFullRefund = true;
+          _refundAmount = '';
+          _refundReason = '';
+        });
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to process refund: $e'),
             backgroundColor: Colors.red,
           ),
         );

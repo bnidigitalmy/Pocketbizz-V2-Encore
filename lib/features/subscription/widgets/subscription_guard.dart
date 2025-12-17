@@ -43,8 +43,8 @@ class SubscriptionGuard extends StatelessWidget {
   bool _checkAccess(Subscription? subscription) {
     if (subscription == null) return false;
 
-    // Active paid subscription always has access
-    if (subscription.status == SubscriptionStatus.active) {
+    // Use isActive which includes grace period
+    if (subscription.isActive) {
       return true;
     }
 

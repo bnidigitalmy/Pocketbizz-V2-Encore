@@ -43,6 +43,8 @@ class Subscription {
   // Metadata
   final bool autoRenew;
   final String? notes;
+  final bool hasEverHadTrial; // Prevent trial reuse
+  final bool graceEmailSent; // Prevent duplicate grace emails
   
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -75,6 +77,8 @@ class Subscription {
     this.pausedDays = 0,
     required this.autoRenew,
     this.notes,
+    this.hasEverHadTrial = false,
+    this.graceEmailSent = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -126,6 +130,8 @@ class Subscription {
       pausedDays: json['paused_days'] as int? ?? 0,
       autoRenew: json['auto_renew'] as bool? ?? true,
       notes: json['notes'] as String?,
+      hasEverHadTrial: json['has_ever_had_trial'] as bool? ?? false,
+      graceEmailSent: json['grace_email_sent'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -160,6 +166,8 @@ class Subscription {
       'paused_days': pausedDays,
       'auto_renew': autoRenew,
       'notes': notes,
+      'has_ever_had_trial': hasEverHadTrial,
+      'grace_email_sent': graceEmailSent,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };

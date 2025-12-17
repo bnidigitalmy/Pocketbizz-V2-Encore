@@ -1,5 +1,6 @@
 import '../../core/supabase/supabase_client.dart';
 import 'production_repository_supabase.dart';
+import '../../features/subscription/data/repositories/subscription_repository_supabase.dart';
 
 /// Sale model
 class Sale {
@@ -99,6 +100,16 @@ class SalesRepositorySupabase {
     String? notes,
     String? deliveryAddress,
   }) async {
+    // Check subscription limits before creating sale
+    final subscriptionRepo = SubscriptionRepositorySupabase();
+    final limits = await subscriptionRepo.getPlanLimits();
+    if (limits.transactions.current >= limits.transactions.max && !limits.transactions.isUnlimited) {
+      throw Exception(
+        'Had transaksi telah dicapai (${limits.transactions.current}/${limits.transactions.max}). '
+        'Sila naik taraf langganan anda untuk menambah lebih banyak transaksi.'
+      );
+    }
+
     // Atomic DB transaction: create sale + deduct FIFO in one RPC
     final saleId = await supabase.rpc(
       'create_sale_and_deduct_fifo',

@@ -414,85 +414,106 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.workspace_premium, color: AppColors.primary, size: 32),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          planName,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+            // Header - Responsive layout for mobile
+            LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 600) {
+                  // Mobile: Stack vertically
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.workspace_premium, color: AppColors.primary, size: 28),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  planName,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  subscription != null
+                                      ? subscription.isOnTrial
+                                          ? 'Trial bermula ${subscription.trialStartedAt != null ? DateTimeHelper.formatDate(subscription.trialStartedAt!) : subscription.formattedStartDate}'
+                                          : priceInfo != null
+                                              ? priceInfo
+                                              : 'Bermula ${subscription.formattedStartDate}'
+                                      : 'Tiada langganan aktif',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        Text(
-                          subscription != null
-                              ? subscription.isOnTrial
-                                  ? 'Trial bermula ${subscription.trialStartedAt != null ? DateTimeHelper.formatDate(subscription.trialStartedAt!) : subscription.formattedStartDate}'
-                                  : priceInfo != null
-                                      ? priceInfo
-                                      : 'Bermula ${subscription.formattedStartDate}'
-                              : 'Tiada langganan aktif',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _buildStatusBadge(status),
+                      ),
+                    ],
+                  );
+                } else {
+                  // Desktop: Horizontal layout
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.workspace_premium, color: AppColors.primary, size: 32),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                planName,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                subscription != null
+                                    ? subscription.isOnTrial
+                                        ? 'Trial bermula ${subscription.trialStartedAt != null ? DateTimeHelper.formatDate(subscription.trialStartedAt!) : subscription.formattedStartDate}'
+                                        : priceInfo != null
+                                            ? priceInfo
+                                            : 'Bermula ${subscription.formattedStartDate}'
+                                    : 'Tiada langganan aktif',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                _buildStatusBadge(status),
-              ],
+                        ],
+                      ),
+                      _buildStatusBadge(status),
+                    ],
+                  );
+                }
+              },
             ),
 
             const SizedBox(height: 20),
 
-            if (subscription != null && !subscription.isOnTrial)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  // Admin actions (pause/resume)
-                  if (AdminHelper.isAdmin() && subscription.status == SubscriptionStatus.active)
-                    OutlinedButton.icon(
-                      onPressed: _processingPayment ? null : () => _handlePauseSubscription(subscription!),
-                      icon: const Icon(Icons.pause),
-                      label: const Text('Pause'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.orange,
-                      ),
-                    ),
-                  if (AdminHelper.isAdmin() && subscription.status == SubscriptionStatus.paused)
-                    OutlinedButton.icon(
-                      onPressed: _processingPayment ? null : () => _handleResumeSubscription(subscription!),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Resume'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.success,
-                      ),
-                    ),
-                  // Proration/Change Plan button disabled - using extend instead
-                  // const SizedBox(width: 8),
-                  // OutlinedButton.icon(
-                  //   onPressed: _processingPayment ? null : _showChangePlanDialog,
-                  //   icon: _processingPayment
-                  //       ? const SizedBox(
-                  //           width: 14,
-                  //           height: 14,
-                  //           child: CircularProgressIndicator(strokeWidth: 2),
-                  //         )
-                  //       : const Icon(Icons.swap_horiz),
-                  //   label: const Text('Tukar Pelan'),
-                  // ),
-                ],
-              ),
+            // Note: Pause/Resume and Refund features moved to Admin Dashboard
+            // Regular users can contact support for subscription management requests
 
             const SizedBox(height: 8),
 
@@ -653,15 +674,33 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           ),
         ),
         const SizedBox(height: 12),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: _buildLimitItem('Produk', _planLimits!.products)),
-            const SizedBox(width: 12),
-            Expanded(child: _buildLimitItem('Stok', _planLimits!.stockItems)),
-            const SizedBox(width: 12),
-            Expanded(child: _buildLimitItem('Transaksi', _planLimits!.transactions)),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // Stack vertically on mobile (width < 600), horizontally on larger screens
+            if (constraints.maxWidth < 600) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildLimitItem('Produk', _planLimits!.products),
+                  const SizedBox(height: 12),
+                  _buildLimitItem('Stok', _planLimits!.stockItems),
+                  const SizedBox(height: 12),
+                  _buildLimitItem('Transaksi', _planLimits!.transactions),
+                ],
+              );
+            } else {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildLimitItem('Produk', _planLimits!.products)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildLimitItem('Stok', _planLimits!.stockItems)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildLimitItem('Transaksi', _planLimits!.transactions)),
+                ],
+              );
+            }
+          },
         ),
         // Show warning if approaching limits
         if (isApproachingLimit && !_planLimits!.products.isUnlimited) ...[
@@ -834,6 +873,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                           color: AppColors.info.withOpacity(0.9),
                           height: 1.4,
                         ),
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -874,6 +915,9 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                         fontSize: 11,
                         color: AppColors.textSecondary,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
@@ -923,14 +967,22 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ),
           ),
         const SizedBox(height: 16),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.85,
-          children: _plans.map((plan) => _buildPackageCard(plan)).toList(),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // Single column on mobile (width < 600), 2 columns on larger screens
+            final crossAxisCount = constraints.maxWidth < 600 ? 1 : 2;
+            final childAspectRatio = constraints.maxWidth < 600 ? 1.2 : 0.85;
+            
+            return GridView.count(
+              crossAxisCount: crossAxisCount,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: childAspectRatio,
+              children: _plans.map((plan) => _buildPackageCard(plan)).toList(),
+            );
+          },
         ),
         const SizedBox(height: 16),
         Container(
@@ -952,6 +1004,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                     fontWeight: FontWeight.bold,
                     color: Colors.amber.shade900,
                   ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -1040,17 +1094,17 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             width: isCurrentPlan ? 0 : (isPopular ? 1.4 : 1), // No border if using container decoration
           ),
         ),
-      child: InkWell(
-        onTap: _processingPayment || (!canUpgrade && !canExtend) || isCurrentPlan 
+        child: InkWell(
+          onTap: _processingPayment || (!canUpgrade && !canExtend) || isCurrentPlan 
             ? null 
             : () => _handlePayment(plan.durationMonths, isExtend: isExtending),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1174,6 +1228,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                   color: _isEarlyAdopter ? AppColors.success : AppColors.textSecondary,
                   fontWeight: _isEarlyAdopter ? FontWeight.w600 : FontWeight.w400,
                 ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
               ),
               // Show calculation for extend
@@ -1290,10 +1346,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                           ),
                         ),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -1343,30 +1399,36 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           subscription.planName,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text(
-          subscription.isOnTrial
-              ? 'Trial • ${subscription.trialStartedAt != null ? DateTimeHelper.formatDate(subscription.trialStartedAt!) : subscription.formattedStartDate} - ${subscription.formattedEndDate}'
-              : '${subscription.durationMonths} bulan • ${subscription.formattedStartDate} - ${subscription.formattedEndDate}',
-          style: const TextStyle(fontSize: 12),
-        ),
-        trailing: Column(
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              subscription.isOnTrial 
-                  ? 'Percuma'
-                  : subscription.totalAmount == 0
-                      ? 'Percuma'
-                      : 'RM ${subscription.totalAmount.round()}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+              subscription.isOnTrial
+                  ? 'Trial • ${subscription.trialStartedAt != null ? DateTimeHelper.formatDate(subscription.trialStartedAt!) : subscription.formattedStartDate} - ${subscription.formattedEndDate}'
+                  : '${subscription.durationMonths} bulan • ${subscription.formattedStartDate} - ${subscription.formattedEndDate}',
+              style: const TextStyle(fontSize: 12),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
-            _buildStatusBadge(subscription.status),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  subscription.isOnTrial 
+                      ? 'Percuma'
+                      : subscription.totalAmount == 0
+                          ? 'Percuma'
+                          : 'RM ${subscription.totalAmount.round()}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                _buildStatusBadge(subscription.status),
+              ],
+            ),
           ],
         ),
       ),
@@ -1456,35 +1518,74 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           ),
           child: Icon(statusIcon, color: statusColor, size: 20),
         ),
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                payment.formattedAmount,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: statusColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: statusColor.withOpacity(0.3)),
-              ),
-              child: Text(
-                statusText,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 400) {
+              // Mobile: Stack vertically
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    payment.formattedAmount,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: statusColor.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      statusText,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            } else {
+              // Desktop: Horizontal layout
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      payment.formattedAmount,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: statusColor.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      statusText,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+          },
         ),
         subtitle: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1500,6 +1601,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               Text(
                 'Kaedah: ${payment.formattedPaymentMethod}',
                 style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
             if (payment.paymentReference != null) ...[
@@ -1507,6 +1610,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               Text(
                 'Rujukan: ${payment.paymentReference}',
                 style: const TextStyle(fontSize: 10, color: AppColors.textHint, fontFamily: 'monospace'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
             if (payment.failureReason != null) ...[
@@ -1551,25 +1656,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                 ),
               ),
             ],
-            // Admin refund button (only for completed payments)
-            if (AdminHelper.isAdmin() && payment.isCompleted && !payment.hasRefund) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.undo, size: 16),
-                  label: const Text(
-                    'Refund',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.red),
-                  ),
-                  onPressed: () => _handleRefundPayment(payment),
-                ),
-              ),
-            ],
+            // Note: Refund functionality moved to Admin Dashboard
+            // Regular users can contact support for refund requests
             // Show refund info if already refunded
             if (payment.hasRefund) ...[
               const SizedBox(height: 8),

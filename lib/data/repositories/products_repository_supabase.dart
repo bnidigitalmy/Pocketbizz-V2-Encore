@@ -1,5 +1,6 @@
 import '../../core/supabase/supabase_client.dart';
 import '../models/product.dart';
+import '../../features/subscription/data/repositories/subscription_repository_supabase.dart';
 
 /// Products repository using Supabase directly
 class ProductsRepositorySupabase {
@@ -8,6 +9,16 @@ class ProductsRepositorySupabase {
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) {
       throw Exception('User not authenticated');
+    }
+
+    // Check subscription limits before creating product
+    final subscriptionRepo = SubscriptionRepositorySupabase();
+    final limits = await subscriptionRepo.getPlanLimits();
+    if (limits.products.current >= limits.products.max && !limits.products.isUnlimited) {
+      throw Exception(
+        'Had produk telah dicapai (${limits.products.current}/${limits.products.max}). '
+        'Sila naik taraf langganan anda untuk menambah lebih banyak produk.'
+      );
     }
 
     // Build insert data, only include non-null fields
