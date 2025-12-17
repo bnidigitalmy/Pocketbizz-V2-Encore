@@ -4,6 +4,7 @@ import '../../../data/repositories/vendors_repository_supabase.dart';
 import '../../../data/models/vendor.dart';
 import '../../subscription/widgets/subscription_guard.dart';
 import 'commission_dialog.dart';
+import 'vendor_detail_page.dart';
 
 /// Vendors Page (Consignment System)
 /// Manage Consignees (kedai yang jual produk untuk user)
@@ -315,7 +316,12 @@ class _VendorsPageState extends State<VendorsPage> {
       ),
       child: InkWell(
         onTap: () {
-          // Could navigate to vendor detail page in future
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => VendorDetailPage(vendorId: vendor.id),
+            ),
+          ).then((_) => _loadVendors()); // Refresh after returning
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(

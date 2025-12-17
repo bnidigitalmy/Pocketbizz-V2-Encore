@@ -98,6 +98,11 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
         netAmount: item.netAmount,
       )).toList() ?? [];
 
+      // Determine commission type: if rate is 0 and amount > 0, it's price_range
+      final commissionType = (_claim!.commissionRate == 0.0 && _claim!.commissionAmount > 0)
+          ? 'price_range'
+          : 'percentage';
+
       final pdfBytes = await pdf_gen.PDFGenerator.generateClaimInvoice(
         claimNumber: _claim!.claimNumber,
         vendorName: _claim!.vendorName ?? 'Unknown Vendor',
@@ -114,6 +119,7 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
         businessName: _businessProfile?.businessName,
         businessAddress: _businessProfile?.address,
         businessPhone: _businessProfile?.phone,
+        commissionType: commissionType,
       );
       
       // For web, use different approach
@@ -196,6 +202,11 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
         netAmount: item.netAmount,
       )).toList() ?? [];
 
+      // Determine commission type: if rate is 0 and amount > 0, it's price_range
+      final commissionType = (_claim!.commissionRate == 0.0 && _claim!.commissionAmount > 0)
+          ? 'price_range'
+          : 'percentage';
+
       final pdfBytes = await pdf_gen.PDFGenerator.generateClaimInvoice(
         claimNumber: _claim!.claimNumber,
         vendorName: _claim!.vendorName ?? 'Unknown Vendor',
@@ -212,6 +223,7 @@ class _ClaimDetailPageState extends State<ClaimDetailPage> {
         businessName: _businessProfile?.businessName,
         businessAddress: _businessProfile?.address,
         businessPhone: _businessProfile?.phone,
+        commissionType: commissionType,
       );
       
       // Use printing package to print

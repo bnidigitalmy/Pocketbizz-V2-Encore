@@ -38,17 +38,7 @@ class ClaimSummaryCard extends StatelessWidget {
               icon: Icons.shopping_cart,
             ),
             
-            const Divider(height: 32),
-            
-            // Commission
-            _buildSummaryRow(
-              label: 'Komisyen (${summary.commissionRate.toStringAsFixed(1)}%)',
-              amount: summary.commissionAmount,
-              color: Colors.orange,
-              icon: Icons.percent,
-              isSubtraction: true,
-            ),
-            
+            // Note: Commission already deducted in delivery, so no commission to show here
             const Divider(height: 32),
             
             // Net Amount (Big & Bold)

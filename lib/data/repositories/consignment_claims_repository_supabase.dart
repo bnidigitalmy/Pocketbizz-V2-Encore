@@ -1,12 +1,63 @@
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:postgrest/postgrest.dart';
 import '../../core/supabase/supabase_client.dart';
 import '../models/consignment_claim.dart';
 import '../models/delivery.dart';
 import '../models/claim_validation_result.dart';
 import '../models/claim_summary.dart';
+import 'vendor_commission_price_ranges_repository_supabase.dart';
 
 /// Consignment Claims Repository for Supabase
 /// Works with new consignment_claims and consignment_claim_items tables
 class ConsignmentClaimsRepositorySupabase {
+  Future<int> _getNextClaimSeqForMonth({
+    required String userId,
+    required String prefixWithDash, // e.g. "CLM-2512-" or "ABC-2512-"
+  }) async {
+    // Query a small window of recent claim_numbers for this month and pick max suffix.
+    final rows = await supabase
+        .from('consignment_claims')
+        .select('claim_number')
+        .eq('business_owner_id', userId)
+        .like('claim_number', '$prefixWithDash%')
+        .order('claim_number', ascending: false)
+        .limit(50);
+
+    int maxSeq = 0;
+    for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+      final claimNumber = row['claim_number'] as String?;
+      if (claimNumber == null) continue;
+      final lastDash = claimNumber.lastIndexOf('-');
+      if (lastDash < 0 || lastDash == claimNumber.length - 1) continue;
+      final suffix = claimNumber.substring(lastDash + 1);
+      final n = int.tryParse(suffix);
+      if (n != null && n > maxSeq) maxSeq = n;
+    }
+
+    return maxSeq + 1;
+  }
+
+  /// Get claim prefix from business_profile (optional user prefix)
+  /// Returns format: "USER_PREFIX-CLM" or "CLM" if no user prefix
+  Future<String> _getClaimPrefix(String userId) async {
+    try {
+      final profileResponse = await supabase
+          .from('business_profile')
+          .select('claim_prefix')
+          .eq('business_owner_id', userId)
+          .maybeSingle();
+      
+      final userPrefix = profileResponse?['claim_prefix'] as String?;
+      if (userPrefix != null && userPrefix.isNotEmpty) {
+        return '${userPrefix.toUpperCase()}-CLM';
+      }
+      return 'CLM'; // No user prefix, use original format
+    } catch (e) {
+      debugPrint('Error fetching claim prefix from business_profile: $e');
+      return 'CLM'; // Fallback to default
+    }
+  }
+
   /// Create claim from deliveries
   /// Optional: itemMetadata to specify carry_forward_status per delivery item
   /// Format: {'<delivery_item_id>': {'carry_forward_status': 'carry_forward'|'loss'|'none'}}
@@ -171,37 +222,50 @@ class ConsignmentClaimsRepositorySupabase {
       }
     }
 
-    // Get vendor commission rate
-    final vendorResponse = await supabase
-        .from('vendors')
-        .select('default_commission_rate')
-        .eq('id', vendorId)
-        .eq('business_owner_id', userId)
-        .maybeSingle();
-
-    final commissionRate = (vendorResponse
-            as Map<String, dynamic>?)?['default_commission_rate'] as num? ??
-        0.0;
-
-    // Calculate amounts
+    // IMPORTANT: unit_price in delivery_items already has commission deducted
+    // Delivery flow: retail_price - commission = unit_price (consignment price)
+    // Claim flow: qty_sold × unit_price = claim amount (NO need to deduct commission again)
+    
+    // Calculate amounts - unit_price already is consignment price (after commission)
     double grossAmount = 0.0;
+    
     for (var item in deliveryItems) {
       final itemMap = item as Map<String, dynamic>;
       final sold = (itemMap['quantity_sold'] as num?)?.toDouble() ?? 0.0;
       final unitPrice = (itemMap['unit_price'] as num?)?.toDouble() ?? 0.0;
-      grossAmount += sold * unitPrice;
+      // unit_price is already consignment price (retail - commission)
+      final itemAmount = sold * unitPrice;
+      grossAmount += itemAmount;
     }
 
-    final commissionAmount = grossAmount * (commissionRate / 100);
-    final netAmount = grossAmount - commissionAmount;
+    // Commission was already deducted in delivery, so commission_amount = 0
+    final commissionAmount = 0.0;
+    final netAmount = grossAmount; // net = gross because no commission deduction needed
+
+    // Generate a unique claim_number on the client (per business_owner_id + month).
+    // NOTE: This expects DB uniqueness to be (business_owner_id, claim_number),
+    // as enforced by migration `db/migrations/fix_consignment_claim_number_per_owner.sql`.
+    // Format: USER_PREFIX-CLM-YYMM-0001 or CLM-YYMM-0001 (if no user prefix)
+    final now = DateTime.now();
+    final yy = (now.year % 100).toString().padLeft(2, '0');
+    final mm = now.month.toString().padLeft(2, '0');
+    
+    // Get prefix from business_profile (format: "USER_PREFIX-CLM" or "CLM")
+    final prefix = await _getClaimPrefix(userId);
+    final prefixWithDash = '$prefix-$yy$mm-';
+    int seqNum = await _getNextClaimSeqForMonth(
+      userId: userId,
+      prefixWithDash: prefixWithDash,
+    );
 
     // Create claim - let trigger generate claim_number automatically
     // Retry logic to handle potential race conditions with claim_number generation
     Map<String, dynamic>? claimResponse;
-    int retries = 5; // Increase retries
+    int retries = 10; // Increase retries untuk better success rate
     Exception? lastError;
 
     while (retries > 0) {
+      final claimNumber = '$prefixWithDash${seqNum.toString().padLeft(4, '0')}';
       try {
         claimResponse = await supabase
         .from('consignment_claims')
@@ -209,15 +273,15 @@ class ConsignmentClaimsRepositorySupabase {
           'business_owner_id': userId,
           'vendor_id': vendorId,
           'claim_date': claimDate.toIso8601String().split('T')[0],
+          'claim_number': claimNumber, // Set explicitly to avoid trigger conflicts
           'status': 'draft',
           'gross_amount': grossAmount,
-          'commission_rate': commissionRate,
-          'commission_amount': commissionAmount,
-          'net_amount': netAmount,
+          'commission_rate': 0.0, // Commission already deducted in delivery, so 0 here
+          'commission_amount': commissionAmount, // 0.0 - commission already deducted in delivery
+          'net_amount': netAmount, // Same as gross_amount
           'paid_amount': 0,
           'balance_amount': netAmount,
           'notes': notes,
-              // Don't set claim_number - let trigger generate it
         })
         .select()
             .single() as Map<String, dynamic>;
@@ -228,30 +292,41 @@ class ConsignmentClaimsRepositorySupabase {
         lastError = e is Exception ? e : Exception(e.toString());
         final errorStr = e.toString().toLowerCase();
 
+        // Log real error details when available
+        if (e is PostgrestException) {
+          debugPrint(
+              'PostgrestException creating claim (claim_number=$claimNumber): code=${e.code} message=${e.message} details=${e.details} hint=${e.hint}');
+        } else {
+          debugPrint('Error creating claim (claim_number=$claimNumber): $e');
+        }
+
         // Check for duplicate key error - Supabase returns 409 Conflict
         // Check multiple patterns: duplicate key, 23505, 409, claim_number_key, conflict
         // Also check for PostgrestException which Supabase uses
-        final isDuplicateError = errorStr.contains('duplicate key') ||
+        final isDuplicateError = (e is PostgrestException && e.code == '23505') ||
+            errorStr.contains('duplicate key') ||
             errorStr.contains('23505') ||
             errorStr.contains('409') ||
             errorStr.contains('claim_number') ||
             errorStr.contains('conflict') ||
-            (e.toString().contains('PostgrestException') &&
-                errorStr.contains('unique'));
+            (e.toString().contains('PostgrestException') && errorStr.contains('unique'));
 
         if (isDuplicateError) {
           retries--;
           if (retries > 0) {
-            // Exponential backoff with jitter: 300ms, 500ms, 700ms, 900ms, 1100ms
-            final delayMs = 300 + (200 * (5 - retries));
+            // Exponential backoff: 300ms, 500ms, 700ms, 900ms, 1100ms, 1300ms, 1500ms, 1700ms, 1900ms, 2100ms
+            final delayMs = 300 + (200 * (10 - retries));
+            debugPrint('Retry attempt ${10 - retries + 1}/10 after ${delayMs}ms delay');
             await Future.delayed(Duration(milliseconds: delayMs));
+            seqNum++; // try next claim number
             continue; // Retry
           } else {
-            // All retries exhausted - throw user-friendly error
+            // All retries exhausted - throw user-friendly error with more details
             throw Exception(
-                'Gagal mencipta tuntutan selepas beberapa percubaan. Nombor tuntutan mungkin konflik. Sila cuba lagi dalam beberapa saat.');
+                'Gagal mencipta tuntutan selepas ${10} percubaan. Nombor tuntutan mungkin konflik atau ada masalah dengan database. Sila cuba lagi dalam beberapa saat atau hubungi support jika masalah berterusan.');
           }
         }
+
         // If not duplicate key error, throw immediately
         rethrow;
       }
@@ -274,9 +349,10 @@ class ConsignmentClaimsRepositorySupabase {
       if (sold <= 0 && unsold <= 0) continue;
 
       final unitPrice = (itemMap['unit_price'] as num?)?.toDouble() ?? 0.0;
-      final itemGross = sold * unitPrice;
-      final itemCommission = itemGross * (commissionRate / 100);
-      final itemNet = itemGross - itemCommission;
+      // unit_price is already consignment price (retail - commission), so no commission deduction needed
+      final itemAmount = sold * unitPrice;
+      final itemCommission = 0.0; // Commission already deducted in delivery
+      final itemNet = itemAmount; // net = gross because no commission deduction
 
       claimItems.add({
         'claim_id': claimId,
@@ -288,9 +364,9 @@ class ConsignmentClaimsRepositorySupabase {
         'quantity_expired': itemMap['quantity_expired'] ?? 0,
         'quantity_damaged': itemMap['quantity_damaged'] ?? 0,
         'unit_price': unitPrice,
-        'gross_amount': itemGross,
-        'commission_rate': commissionRate,
-        'commission_amount': itemCommission,
+        'gross_amount': itemAmount,
+        'commission_rate': 0.0, // Commission already deducted in delivery
+        'commission_amount': itemCommission, // 0.0
         'net_amount': itemNet,
         'paid_amount': 0,
         'balance_amount': itemNet,

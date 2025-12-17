@@ -1118,18 +1118,18 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
         
         if (_step == 'confirm') {
           if (isWide) {
-            return Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _isLoading
-                        ? null
-                        : () {
-                            setState(() => _step = 'preview');
-                          },
-                    child: const Text('Kembali'),
-                  ),
+          return Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          setState(() => _step = 'preview');
+                        },
+                  child: const Text('Kembali'),
                 ),
+              ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
@@ -1138,32 +1138,32 @@ class _ProductionPlanningDialogState extends State<ProductionPlanningDialog> {
                     label: const Text('Jadualkan'),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
                     onPressed: (_isLoading || !_canConfirmProduction) ? null : _handleConfirm,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.check, size: 20, color: Colors.white),
-                              SizedBox(width: 8),
-                              Text('Sahkan Produksi', style: TextStyle(color: Colors.white)),
-                            ],
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
                           ),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.check, size: 20, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text('Sahkan Produksi', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
                   ),
                 ),
               ],

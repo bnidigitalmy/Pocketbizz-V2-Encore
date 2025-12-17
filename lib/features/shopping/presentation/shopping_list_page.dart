@@ -11,6 +11,8 @@ import '../../../data/repositories/shopping_cart_repository_supabase.dart';
 import '../../../data/repositories/stock_repository_supabase.dart';
 import '../../../data/repositories/purchase_order_repository_supabase.dart';
 import '../../../data/repositories/vendors_repository_supabase.dart';
+import '../../../data/repositories/business_profile_repository_supabase.dart';
+import '../../../data/models/business_profile.dart';
 import '../../../core/supabase/supabase_client.dart';
 
 /// Upgraded Shopping List Page
@@ -27,11 +29,13 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
   final _stockRepo = StockRepository(supabase);
   final _poRepo = PurchaseOrderRepository(supabase);
   final _vendorRepo = VendorsRepositorySupabase();
+  final _businessProfileRepo = BusinessProfileRepository();
   
   List<ShoppingCartItem> _cartItems = [];
   List<StockItem> _allStockItems = [];
   List<StockItem> _lowStockItems = [];
   List<Vendor> _suppliers = [];
+  BusinessProfile? _businessProfile;
   bool _isLoading = true;
   
   // Editable quantities
@@ -239,12 +243,21 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
         debugPrint('Error loading suppliers: $e');
       }
       
+      // Load business profile
+      BusinessProfile? businessProfile;
+      try {
+        businessProfile = await _businessProfileRepo.getBusinessProfile();
+      } catch (e) {
+        debugPrint('Error loading business profile: $e');
+      }
+      
       if (mounted) {
         setState(() {
           _cartItems = cartItems;
           _allStockItems = allStockItems;
           _lowStockItems = lowStockItems;
           _suppliers = suppliers;
+          _businessProfile = businessProfile;
           _isLoading = false;
           _isLoadingData = false;
         });
@@ -1730,8 +1743,24 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        const Text('PocketBizz', style: TextStyle(fontWeight: FontWeight.bold)),
-                        // TODO: Add business profile data
+                        Text(
+                          _businessProfile?.businessName ?? 'PocketBizz',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        if (_businessProfile?.address != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _businessProfile!.address!,
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          ),
+                        ],
+                        if (_businessProfile?.phone != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Tel: ${_businessProfile!.phone}',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          ),
+                        ],
                       ],
                     ),
                   ),

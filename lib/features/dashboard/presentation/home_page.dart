@@ -65,7 +65,7 @@ class _HomePageState extends State<HomePage> {
                 Expanded(child: _buildNavItem(2, Icons.inventory, 'Produk')),
                 Expanded(child: _buildNavItem(3, Icons.point_of_sale, 'Jualan')),
               ],
-            ),
+          ),
           ),
         ),
       ),

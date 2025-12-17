@@ -1,8 +1,5 @@
 import '../../core/supabase/supabase_client.dart';
 import '../models/vendor.dart';
-import '../models/vendor_claim.dart';
-import '../models/vendor_claim_item.dart';
-import '../models/vendor_payment.dart';
 
 class VendorsRepositorySupabase {
   // ============================================================================
@@ -140,206 +137,82 @@ class VendorsRepositorySupabase {
   }
 
   // ============================================================================
-  // VENDOR CLAIMS
+  // VENDOR SUMMARY (Using NEW Consignment System)
   // ============================================================================
 
-  /// Get all claims
-  Future<List<VendorClaim>> getAllClaims({String? status, String? vendorId}) async {
-    dynamic query = supabase
-        .from('vendor_claims')
-        .select('''
-          *,
-          vendors!inner(name)
-        ''');
-
-    if (status != null) {
-      query = query.eq('status', status);
-    }
-
-    if (vendorId != null) {
-      query = query.eq('vendor_id', vendorId);
-    }
-
-    query = query.order('claim_date', ascending: false);
-
-    final response = await query;
-    
-    return (response as List).map((json) {
-      final claim = VendorClaim.fromJson(json as Map<String, dynamic>);
-      final vendorData = json['vendors'];
-      if (vendorData != null) {
-        claim.vendorName = vendorData['name'] as String?;
-      }
-      return claim;
-    }).toList();
-  }
-
-  /// Get claim by ID with items
-  Future<Map<String, dynamic>?> getClaimById(String claimId) async {
-    final claimResponse = await supabase
-        .from('vendor_claims')
-        .select('''
-          *,
-          vendors!inner(name, phone, email)
-        ''')
-        .eq('id', claimId)
-        .maybeSingle();
-
-    if (claimResponse == null) return null;
-
-    final itemsResponse = await supabase
-        .from('vendor_claim_items')
-        .select('''
-          *,
-          products!inner(name, sku)
-        ''')
-        .eq('claim_id', claimId);
-
-    return {
-      'claim': claimResponse,
-      'items': itemsResponse,
-    };
-  }
-
-  /// Create claim (call DB function)
-  Future<String> createClaim({
-    required String vendorId,
-    required List<Map<String, dynamic>> items, // [{product_id, quantity, unit_price}]
-    String? vendorNotes,
-    String? proofUrl,
-  }) async {
-    final userId = supabase.auth.currentUser!.id;
-
-    final response = await supabase.rpc('create_vendor_claim', params: {
-      'p_business_owner_id': userId,
-      'p_vendor_id': vendorId,
-      'p_claim_items': items,
-      'p_vendor_notes': vendorNotes,
-      'p_proof_url': proofUrl,
-    });
-
-    return response as String;
-  }
-
-  /// Approve claim
-  Future<void> approveClaim(String claimId, {String? adminNotes}) async {
-    await supabase.rpc('update_claim_status', params: {
-      'p_claim_id': claimId,
-      'p_status': 'approved',
-      'p_admin_notes': adminNotes,
-    });
-  }
-
-  /// Reject claim
-  Future<void> rejectClaim(String claimId, {String? adminNotes}) async {
-    await supabase.rpc('update_claim_status', params: {
-      'p_claim_id': claimId,
-      'p_status': 'rejected',
-      'p_admin_notes': adminNotes,
-    });
-  }
-
-  /// Get pending claims count
-  Future<int> getPendingClaimsCount() async {
-    final response = await supabase
-        .from('vendor_claims')
-        .select()
-        .eq('status', 'pending');
-
-    return (response as List).length;
-  }
-
-  // ============================================================================
-  // VENDOR PAYMENTS
-  // ============================================================================
-
-  /// Record payment to vendor
-  Future<String> recordPayment({
-    required String vendorId,
-    required double amount,
-    required String paymentMethod,
-    required List<String> claimIds,
-    String? paymentReference,
-    String? notes,
-  }) async {
-    final userId = supabase.auth.currentUser!.id;
-
-    final response = await supabase.rpc('record_vendor_payment', params: {
-      'p_business_owner_id': userId,
-      'p_vendor_id': vendorId,
-      'p_amount': amount,
-      'p_payment_method': paymentMethod,
-      'p_claim_ids': claimIds,
-      'p_payment_reference': paymentReference,
-      'p_notes': notes,
-    });
-
-    return response as String;
-  }
-
-  /// Get vendor payments
-  Future<List<VendorPayment>> getVendorPayments(String vendorId) async {
-    final response = await supabase
-        .from('vendor_payments')
-        .select('''
-          *,
-          vendors!inner(name)
-        ''')
-        .eq('vendor_id', vendorId)
-        .order('payment_date', ascending: false);
-
-    return (response as List).map((json) {
-      final payment = VendorPayment.fromJson(json as Map<String, dynamic>);
-      final vendorData = json['vendors'];
-      if (vendorData != null) {
-        payment.vendorName = vendorData['name'] as String?;
-      }
-      return payment;
-    }).toList();
-  }
-
-  /// Get vendor summary (total sales, commission, payments)
+  /// Get vendor summary (total sales, commission, payments) from NEW consignment tables
   Future<Map<String, dynamic>> getVendorSummary(String vendorId) async {
+    // Get claims from NEW consignment_claims table
     final claims = await supabase
-        .from('vendor_claims')
-        .select('status, total_sales_amount, total_commission')
+        .from('consignment_claims')
+        .select('status, gross_amount, commission_amount, net_amount, paid_amount, balance_amount')
         .eq('vendor_id', vendorId);
 
-    final payments = await supabase
-        .from('vendor_payments')
-        .select('amount')
+    // Get deliveries stats
+    final deliveries = await supabase
+        .from('vendor_deliveries')
+        .select('total_amount, status')
         .eq('vendor_id', vendorId);
 
-    double totalSales = 0;
+    double totalDeliveryAmount = 0;
+    int totalDeliveries = 0;
+    int pendingDeliveries = 0;
+
+    for (final delivery in deliveries as List) {
+      final amount = (delivery['total_amount'] as num?)?.toDouble() ?? 0;
+      final status = delivery['status'] as String?;
+      
+      totalDeliveryAmount += amount;
+      totalDeliveries++;
+      
+      if (status == 'delivered') pendingDeliveries++;
+    }
+
+    double totalGrossAmount = 0;
     double totalCommission = 0;
-    double pendingCommission = 0;
-    double approvedCommission = 0;
-    double paidAmount = 0;
+    double totalNetAmount = 0;
+    double totalPaidAmount = 0;
+    double totalBalance = 0;
+    int pendingClaims = 0;
+    int approvedClaims = 0;
+    int settledClaims = 0;
 
     for (final claim in claims as List) {
-      final sales = (claim['total_sales_amount'] as num?)?.toDouble() ?? 0;
-      final commission = (claim['total_commission'] as num?)?.toDouble() ?? 0;
-      final status = claim['status'] as String;
+      final gross = (claim['gross_amount'] as num?)?.toDouble() ?? 0;
+      final commission = (claim['commission_amount'] as num?)?.toDouble() ?? 0;
+      final net = (claim['net_amount'] as num?)?.toDouble() ?? 0;
+      final paid = (claim['paid_amount'] as num?)?.toDouble() ?? 0;
+      final balance = (claim['balance_amount'] as num?)?.toDouble() ?? 0;
+      final status = claim['status'] as String?;
 
-      totalSales += sales;
+      totalGrossAmount += gross;
       totalCommission += commission;
+      totalNetAmount += net;
+      totalPaidAmount += paid;
+      totalBalance += balance;
 
-      if (status == 'pending') pendingCommission += commission;
-      if (status == 'approved') approvedCommission += commission;
-    }
-
-    for (final payment in payments as List) {
-      paidAmount += (payment['amount'] as num?)?.toDouble() ?? 0;
+      if (status == 'draft' || status == 'submitted') pendingClaims++;
+      if (status == 'approved') approvedClaims++;
+      if (status == 'settled') settledClaims++;
     }
 
     return {
-      'total_sales': totalSales,
+      // Delivery stats
+      'total_deliveries': totalDeliveries,
+      'pending_deliveries': pendingDeliveries,
+      'total_delivery_amount': totalDeliveryAmount,
+      
+      // Claims stats (from NEW consignment system)
+      'total_gross_amount': totalGrossAmount,
       'total_commission': totalCommission,
-      'pending_commission': pendingCommission,
-      'approved_commission': approvedCommission,
-      'paid_amount': paidAmount,
-      'outstanding_balance': approvedCommission - paidAmount,
+      'total_net_amount': totalNetAmount,
+      'total_paid_amount': totalPaidAmount,
+      'outstanding_balance': totalBalance,
+      
+      // Claim counts
+      'pending_claims': pendingClaims,
+      'approved_claims': approvedClaims,
+      'settled_claims': settledClaims,
     };
   }
 }
-

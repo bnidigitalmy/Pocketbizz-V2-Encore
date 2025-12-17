@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -9,6 +10,7 @@ import '../../../data/repositories/consignment_claims_repository_supabase.dart';
 // Note: Using original repo for now, can switch to refactored version later
 import '../../../data/repositories/deliveries_repository_supabase.dart';
 import '../../../data/repositories/vendors_repository_supabase.dart';
+import '../../../data/repositories/vendor_commission_price_ranges_repository_supabase.dart';
 import '../../../data/repositories/business_profile_repository_supabase.dart';
 import '../../../data/repositories/carry_forward_repository_supabase.dart';
 import '../../../data/models/claim_validation_result.dart';
@@ -35,6 +37,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
   final _claimsRepo = ConsignmentClaimsRepositorySupabase();
   final _deliveriesRepo = DeliveriesRepositorySupabase();
   final _vendorsRepo = VendorsRepositorySupabase();
+  final _priceRangesRepo = VendorCommissionPriceRangesRepository();
   final _businessProfileRepo = BusinessProfileRepository();
   final _carryForwardRepo = CarryForwardRepositorySupabase();
 
@@ -424,8 +427,16 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
       return;
     }
 
+    if (_selectedVendorId == null) {
+      _showError('Sila pilih vendor terlebih dahulu');
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
+      // IMPORTANT: unit_price in delivery_items already has commission deducted
+      // No need to calculate commission again - just sum up qty_sold × unit_price
+      
       // Kira secara lokal dari _deliveryItems (termasuk C/F)
       final summary = ClaimSummary.fromDeliveryItems(
         deliveryItems: _deliveryItems.map((item) {
@@ -438,7 +449,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
             'quantity_damaged': item['quantityDamaged'],
           };
         }).toList(),
-        commissionRate: _selectedVendor?.defaultCommissionRate ?? 0.0,
+        commissionRate: 0.0, // Commission already deducted in delivery
+        commissionType: null, // Not needed anymore
+        priceRangeCommissions: null, // Not needed anymore
       );
 
       if (mounted) {
@@ -1837,7 +1850,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
               ),
             ),
             subtitle: Text(
-              'Kadar: ${_claimSummary!.commissionRate.toStringAsFixed(1)}%',
+              _claimSummary!.commissionType == 'price_range'
+                  ? 'Kadar: Price Range'
+                  : 'Kadar: ${_claimSummary!.commissionRate.toStringAsFixed(1)}%',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey[600],
@@ -1855,19 +1870,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                       AppColors.success,
                     ),
                     const SizedBox(height: 8),
-                    _buildDetailRow(
-                      'Kadar Komisyen',
-                      '${_claimSummary!.commissionRate.toStringAsFixed(1)}%',
-                      Colors.grey[700]!,
-                    ),
-                    const Divider(height: 24),
-                    _buildDetailRow(
-                      'Jumlah Komisyen',
-                      '-RM ${_claimSummary!.commissionAmount.toStringAsFixed(2)}',
-                      Colors.orange,
-                      isBold: true,
-                    ),
-                    const Divider(height: 24),
+                    // Note: Commission already deducted in delivery, so no commission rate to show
+                    // Note: Commission already deducted in delivery, so no commission deduction here
+                    // const Divider(height: 24),
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -1933,10 +1938,10 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                         .map((item) {
                       final sold = item['quantitySold'] as double;
                       final unitPrice = item['unitPrice'] as double;
+                      // unit_price is already consignment price (retail - commission)
                       final itemValue = sold * unitPrice;
-                      final commission =
-                          itemValue * (_claimSummary!.commissionRate / 100);
-                      final net = itemValue - commission;
+                      // No commission deduction needed - already deducted in delivery
+                      final net = itemValue; // net = gross because commission already deducted
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -1968,25 +1973,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                                 ),
                               ],
                             ),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Komisyen (${_claimSummary!.commissionRate.toStringAsFixed(1)}%)',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                                Text(
-                                  '-RM ${commission.toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.orange,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            // Commission already deducted in delivery, so no need to show here
                             const Divider(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2025,10 +2012,10 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                           .map((item) {
                         final sold = item['quantitySold'] as double;
                         final unitPrice = item['unitPrice'] as double;
+                        // unit_price is already consignment price (retail - commission)
                         final itemValue = sold * unitPrice;
-                        final commission =
-                            itemValue * (_claimSummary!.commissionRate / 100);
-                        final net = itemValue - commission;
+                        // No commission deduction needed - already deducted in delivery
+                        final net = itemValue; // net = gross
                         final unsold = item['quantityUnsold'] as double;
                         final expired = item['quantityExpired'] as double;
                         final damaged = item['quantityDamaged'] as double;
@@ -2092,25 +2079,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                                   ),
                                 ),
                               ],
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Komisyen (${_claimSummary!.commissionRate.toStringAsFixed(1)}%)',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                  Text(
-                                    '-RM ${commission.toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.orange,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                              // Commission already deducted in delivery, so no need to show here
                               const Divider(height: 8),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2295,15 +2264,9 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
                   const Divider(height: 32),
 
                   // Summary
-                  _buildInvoiceSummaryRow('Jumlah Terjual',
-                      _createdClaim!.grossAmount, AppColors.success),
-                  const SizedBox(height: 8),
-                  _buildInvoiceSummaryRow(
-                    'Komisyen (${_createdClaim!.commissionRate.toStringAsFixed(1)}%)',
-                    _createdClaim!.commissionAmount,
-                    Colors.orange,
-                    isSubtraction: true,
-                  ),
+                  // Note: Commission already deducted in delivery, so gross_amount is the final claim amount
+                  _buildInvoiceSummaryRow('Jumlah Tuntutan',
+                      _createdClaim!.netAmount, AppColors.success),
                   const Divider(height: 24),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -2459,6 +2422,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         businessName: _businessProfile?.businessName,
         businessAddress: _businessProfile?.address,
         businessPhone: _businessProfile?.phone,
+        commissionType: _selectedVendor!.commissionType,
       );
 
       // Save to file only (no auto-share)
@@ -2516,6 +2480,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         businessName: _businessProfile?.businessName,
         businessAddress: _businessProfile?.address,
         businessPhone: _businessProfile?.phone,
+        commissionType: _selectedVendor!.commissionType,
       );
 
       await Printing.layoutPdf(
@@ -2562,6 +2527,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         businessName: _businessProfile?.businessName,
         businessAddress: _businessProfile?.address,
         businessPhone: _businessProfile?.phone,
+        commissionType: _selectedVendor!.commissionType,
       );
 
       // Save to temp file
@@ -2641,6 +2607,7 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         businessName: _businessProfile?.businessName,
         businessAddress: _businessProfile?.address,
         businessPhone: _businessProfile?.phone,
+        commissionType: _selectedVendor!.commissionType,
       );
 
       if (!mounted) return;

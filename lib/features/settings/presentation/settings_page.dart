@@ -29,6 +29,13 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   final _accountNumberController = TextEditingController();
   final _accountNameController = TextEditingController();
   final _paymentQrCodeController = TextEditingController();
+  
+  // Prefix Controllers
+  final _invoicePrefixController = TextEditingController();
+  final _claimPrefixController = TextEditingController();
+  final _paymentPrefixController = TextEditingController();
+  final _poPrefixController = TextEditingController();
+  final _bookingPrefixController = TextEditingController();
 
   // User Profile Controllers
   final _fullNameController = TextEditingController();
@@ -68,6 +75,11 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
     _accountNumberController.dispose();
     _accountNameController.dispose();
     _paymentQrCodeController.dispose();
+    _invoicePrefixController.dispose();
+    _claimPrefixController.dispose();
+    _paymentPrefixController.dispose();
+    _poPrefixController.dispose();
+    _bookingPrefixController.dispose();
     _fullNameController.dispose();
     _userEmailController.dispose();
     _currentPasswordController.dispose();
@@ -91,6 +103,11 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
         _accountNumberController.text = profile.accountNumber ?? '';
         _accountNameController.text = profile.accountName ?? '';
         _paymentQrCodeController.text = profile.paymentQrCode ?? '';
+        _invoicePrefixController.text = profile.invoicePrefix ?? '';
+        _claimPrefixController.text = profile.claimPrefix ?? '';
+        _paymentPrefixController.text = profile.paymentPrefix ?? '';
+        _poPrefixController.text = profile.poPrefix ?? '';
+        _bookingPrefixController.text = profile.bookingPrefix ?? '';
       }
     } catch (e) {
       if (mounted) {
@@ -151,6 +168,21 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
         paymentQrCode: _paymentQrCodeController.text.trim().isEmpty
             ? null
             : _paymentQrCodeController.text.trim(),
+        invoicePrefix: _invoicePrefixController.text.trim().isEmpty
+            ? null
+            : _invoicePrefixController.text.trim().toUpperCase(),
+        claimPrefix: _claimPrefixController.text.trim().isEmpty
+            ? null
+            : _claimPrefixController.text.trim().toUpperCase(),
+        paymentPrefix: _paymentPrefixController.text.trim().isEmpty
+            ? null
+            : _paymentPrefixController.text.trim().toUpperCase(),
+        poPrefix: _poPrefixController.text.trim().isEmpty
+            ? null
+            : _poPrefixController.text.trim().toUpperCase(),
+        bookingPrefix: _bookingPrefixController.text.trim().isEmpty
+            ? null
+            : _bookingPrefixController.text.trim().toUpperCase(),
       );
 
       if (mounted) {
@@ -320,6 +352,16 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
             ),
             const SizedBox(height: 16),
             _buildBankForm(),
+
+            const SizedBox(height: 32),
+
+            _buildSectionHeader(
+              'Prefix Nombor Dokumen',
+              Icons.confirmation_number_rounded,
+              'Prefix untuk nombor invois, tuntutan dan pembayaran. Auto-generate dari nama perniagaan jika kosong.',
+            ),
+            const SizedBox(height: 16),
+            _buildPrefixForm(),
 
             const SizedBox(height: 24),
 
@@ -619,6 +661,211 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPrefixForm() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.blue[700]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Prefix akan ditambah di depan nombor dokumen. Contoh: ABC-DEL-2512-0001 (prefix ABC + DEL). Jika kosong, format tetap: DEL-2512-0001. Sistem akan auto-generate dari nama perniagaan jika kosong.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue[700],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Use LayoutBuilder to adjust layout for mobile vs desktop
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // Stack vertically on mobile (< 600px width), horizontally on desktop
+              if (constraints.maxWidth < 600) {
+                return Column(
+                  children: [
+                    _buildPrefixField(
+                      controller: _invoicePrefixController,
+                      label: 'Prefix Invois',
+                      hint: 'ABC (akan jadi ABC-DEL-...)',
+                      icon: Icons.receipt_long,
+                      suffixText: '-DEL-YYMM-0001',
+                      helperText: 'Format: PREFIX-DEL-YYMM-0001',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPrefixField(
+                      controller: _claimPrefixController,
+                      label: 'Prefix Tuntutan',
+                      hint: 'ABC (akan jadi ABC-CLM-...)',
+                      icon: Icons.description,
+                      suffixText: '-CLM-YYMM-0001',
+                      helperText: 'Format: PREFIX-CLM-YYMM-0001',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPrefixField(
+                      controller: _paymentPrefixController,
+                      label: 'Prefix Pembayaran',
+                      hint: 'ABC (akan jadi ABC-PAY-...)',
+                      icon: Icons.payments,
+                      suffixText: '-PAY-YYMM-0001',
+                      helperText: 'Format: PREFIX-PAY-YYMM-0001',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPrefixField(
+                      controller: _poPrefixController,
+                      label: 'Prefix Purchase Order',
+                      hint: 'ABC (akan jadi ABC-PO-...)',
+                      icon: Icons.shopping_cart,
+                      suffixText: '-PO-YYMM-0001',
+                      helperText: 'Format: PREFIX-PO-YYMM-0001',
+                    ),
+                    const SizedBox(height: 12),
+                    _buildPrefixField(
+                      controller: _bookingPrefixController,
+                      label: 'Prefix Tempahan',
+                      hint: 'ABC (akan jadi ABC-BKG-...)',
+                      icon: Icons.event,
+                      suffixText: '-BKG-YYMM-0001',
+                      helperText: 'Format: PREFIX-BKG-YYMM-0001',
+                    ),
+                  ],
+                );
+              } else {
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildPrefixField(
+                            controller: _invoicePrefixController,
+                            label: 'Prefix Invois',
+                            hint: 'ABC (akan jadi ABC-DEL-...)',
+                            icon: Icons.receipt_long,
+                            suffixText: '-DEL-YYMM-0001',
+                            helperText: 'Format: PREFIX-DEL-YYMM-0001',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildPrefixField(
+                            controller: _claimPrefixController,
+                            label: 'Prefix Tuntutan',
+                            hint: 'ABC (akan jadi ABC-CLM-...)',
+                            icon: Icons.description,
+                            suffixText: '-CLM-YYMM-0001',
+                            helperText: 'Format: PREFIX-CLM-YYMM-0001',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildPrefixField(
+                            controller: _paymentPrefixController,
+                            label: 'Prefix Pembayaran',
+                            hint: 'ABC (akan jadi ABC-PAY-...)',
+                            icon: Icons.payments,
+                            suffixText: '-PAY-YYMM-0001',
+                            helperText: 'Format: PREFIX-PAY-YYMM-0001',
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildPrefixField(
+                            controller: _poPrefixController,
+                            label: 'Prefix Purchase Order',
+                            hint: 'ABC (akan jadi ABC-PO-...)',
+                            icon: Icons.shopping_cart,
+                            suffixText: '-PO-YYMM-0001',
+                            helperText: 'Format: PREFIX-PO-YYMM-0001',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildPrefixField(
+                            controller: _bookingPrefixController,
+                            label: 'Prefix Tempahan',
+                            hint: 'ABC (akan jadi ABC-BKG-...)',
+                            icon: Icons.event,
+                            suffixText: '-BKG-YYMM-0001',
+                            helperText: 'Format: PREFIX-BKG-YYMM-0001',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(child: SizedBox()), // Spacer for alignment
+                      ],
+                    ),
+                  ],
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrefixField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    required String suffixText,
+    required String helperText,
+  }) {
+    return TextFormField(
+      controller: controller,
+      enabled: true,
+      textCapitalization: TextCapitalization.characters,
+      maxLength: 10,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon),
+        suffixText: suffixText,
+        helperText: helperText,
+        counterText: '', // Hide character counter
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      validator: (v) {
+        if (v != null && v.isNotEmpty) {
+          if (v.length < 2) {
+            return 'Minimum 2 aksara';
+          }
+          if (!RegExp(r'^[A-Z0-9]+$').hasMatch(v.toUpperCase())) {
+            return 'Hanya huruf dan nombor';
+          }
+        }
+        return null;
+      },
     );
   }
 

@@ -79,6 +79,11 @@ class BusinessProfileRepository {
     String? accountNumber,
     String? accountName,
     String? paymentQrCode,
+    String? invoicePrefix,
+    String? claimPrefix,
+    String? paymentPrefix,
+    String? poPrefix,
+    String? bookingPrefix,
   }) async {
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) throw Exception('User not authenticated');
@@ -101,6 +106,11 @@ class BusinessProfileRepository {
       'account_number': accountNumber,
       'account_name': accountName,
       'payment_qr_code': paymentQrCode,
+      'invoice_prefix': invoicePrefix?.toUpperCase(),
+      'claim_prefix': claimPrefix?.toUpperCase(),
+      'payment_prefix': paymentPrefix?.toUpperCase(),
+      'po_prefix': poPrefix?.toUpperCase(),
+      'booking_prefix': bookingPrefix?.toUpperCase(),
     };
 
     try {

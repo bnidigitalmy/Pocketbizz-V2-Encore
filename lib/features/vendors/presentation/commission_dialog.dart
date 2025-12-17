@@ -233,7 +233,11 @@ class _CommissionDialogState extends State<CommissionDialog> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Kadar semasa: ${_vendor!.defaultCommissionRate.toStringAsFixed(2)}%',
+                              _commissionType == 'percentage'
+                                  ? 'Kadar semasa: ${_vendor!.defaultCommissionRate.toStringAsFixed(2)}%'
+                                  : _priceRanges.isEmpty
+                                      ? 'Tiada price range ditetapkan'
+                                      : 'Price range: ${_priceRanges.length} julat harga',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.blue[700],

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import '../../../core/theme/app_colors.dart';
@@ -383,7 +384,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
       final date = DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(po.createdAt));
       
       var message = '📋 *PURCHASE ORDER*\n';
-      message += 'PocketBizz\n\n';
+      message += '${_businessProfile?.businessName ?? 'PocketBizz'}\n\n';
       message += 'PO Number: *${po.poNumber}*\n';
       message += 'Tarikh: $date\n\n';
       
@@ -579,31 +580,42 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
     }
   }
 
-  void _printPO(PurchaseOrder po) {
-    if (kIsWeb) {
-      // For web, create a print-friendly HTML page using window.open
-      // We'll use a simpler approach: show details dialog and instruct user to print
-      setState(() => _selectedPO = po);
-      _showDetailsDialog();
+  Future<void> _printPO(PurchaseOrder po) async {
+    try {
+      // Ensure business profile is loaded
+      await _ensureBusinessProfileLoaded();
       
-      // Show instruction after dialog opens
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('💡 Tip: Gunakan Ctrl+P atau Cmd+P untuk cetak PO ini. Atau gunakan "Muat Turun PDF" untuk save sebagai PDF.'),
-              duration: Duration(seconds: 5),
-            ),
-          );
-        }
-      });
-    } else {
-      // For mobile, show message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Print functionality untuk mobile: Buka PO details dan gunakan share > Print'),
-        ),
+      // Generate PDF first
+      final pdfBytes = await PDFGenerator.generatePOPDF(
+        po,
+        businessName: _businessProfile?.businessName,
+        businessAddress: _businessProfile?.address,
+        businessPhone: _businessProfile?.phone,
       );
+      
+      // Print directly using Printing.layoutPdf
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => pdfBytes,
+        name: 'PO_${po.poNumber}',
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ PO sedang dicetak...'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Ralat mencetak PO: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -652,10 +664,13 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
   }
 
   Future<void> _copyAsText(PurchaseOrder po) async {
+    // Ensure business profile is loaded
+    await _ensureBusinessProfileLoaded();
+    
     final date = DateFormat('dd MMMM yyyy', 'ms_MY').format(DateTimeHelper.toLocalTime(po.createdAt));
     
     var text = 'PURCHASE ORDER\n';
-    text += 'PocketBizz\n\n';
+    text += '${_businessProfile?.businessName ?? 'PocketBizz'}\n\n';
     text += 'PO Number: ${po.poNumber}\n';
     text += 'Tarikh: $date\n\n';
     
@@ -825,7 +840,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
       final pdfBase64 = base64Encode(pdfBytes);
       
       // Create email subject and body
-      final subject = 'Purchase Order ${_selectedPO!.poNumber} - PocketBizz';
+      final subject = 'Purchase Order ${_selectedPO!.poNumber} - ${_businessProfile?.businessName ?? 'PocketBizz'}';
       final body = _emailMessageController.text.trim().isEmpty
           ? 'Sila lihat Purchase Order yang dilampirkan.\n\nTerima kasih!'
           : _emailMessageController.text.trim();

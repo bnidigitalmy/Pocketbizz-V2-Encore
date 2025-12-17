@@ -63,11 +63,14 @@ class VendorCommissionPriceRange {
   }
 
   /// Check if a price falls within this range
+  /// Note: For ranges with maxPrice, we use <= to include the upper bound
+  /// This matches typical price range logic where RM10.01-RM13.00 includes RM13.00
   bool isPriceInRange(double price) {
     if (maxPrice == null) {
       return price >= minPrice;
     }
-    return price >= minPrice && price < maxPrice!;
+    // Use <= to include the upper bound (e.g., RM13.00 is included in RM10.01-RM13.00)
+    return price >= minPrice && price <= maxPrice!;
   }
 }
 

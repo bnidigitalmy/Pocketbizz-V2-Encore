@@ -75,6 +75,7 @@ class PDFGenerator {
     String? businessName,
     String? businessAddress,
     String? businessPhone,
+    String? commissionType, // 'percentage' or 'price_range'
   }) async {
     final pdf = pw.Document();
 
@@ -104,6 +105,7 @@ class PDFGenerator {
               netAmount: netAmount,
               paidAmount: paidAmount,
               balanceAmount: balanceAmount,
+              commissionType: commissionType,
             ),
             if (notes != null && notes.isNotEmpty) ...[
               pw.SizedBox(height: 20),
@@ -738,7 +740,13 @@ class PDFGenerator {
     required double netAmount,
     required double paidAmount,
     required double balanceAmount,
+    String? commissionType, // 'percentage' or 'price_range'
   }) {
+    // Determine commission label based on type
+    final commissionLabel = commissionType == 'price_range'
+        ? 'Komisyen (Price Range)'
+        : 'Komisyen (${commissionRate.toStringAsFixed(1)}%)';
+    
     return pw.Container(
       padding: const pw.EdgeInsets.all(15),
       decoration: pw.BoxDecoration(
@@ -748,11 +756,18 @@ class PDFGenerator {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.end,
         children: [
-          _summaryRow('Jumlah Kasar', grossAmount),
-          pw.SizedBox(height: 5),
-          _summaryRow('Komisyen ($commissionRate%)', commissionAmount, isDeduction: true),
-          pw.Divider(),
-          _summaryRow('Jumlah Bersih', netAmount, isBold: true),
+          // Commission already deducted in delivery, so show gross as "Jumlah Tuntutan"
+          // Only show commission row if commissionAmount > 0 (for backward compatibility with old claims)
+          if (commissionAmount > 0) ...[
+            _summaryRow('Jumlah Kasar', grossAmount),
+            pw.SizedBox(height: 5),
+            _summaryRow(commissionLabel, commissionAmount, isDeduction: true),
+            pw.Divider(),
+            _summaryRow('Jumlah Bersih', netAmount, isBold: true),
+          ] else ...[
+            // No commission deduction - gross = net = claim amount
+            _summaryRow('Jumlah Tuntutan', netAmount, isBold: true),
+          ],
           pw.SizedBox(height: 10),
           _summaryRow('Telah Dibayar', paidAmount),
           pw.SizedBox(height: 5),

@@ -13,6 +13,11 @@ class BusinessProfile {
   final String? accountNumber;
   final String? accountName;
   final String? paymentQrCode;
+  final String? invoicePrefix;  // Auto-generated from business_name, user can override
+  final String? claimPrefix;    // Auto-generated from business_name, user can override
+  final String? paymentPrefix;  // Auto-generated from business_name, user can override
+  final String? poPrefix;       // Auto-generated from business_name, user can override
+  final String? bookingPrefix;  // Auto-generated from business_name, user can override
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -29,6 +34,11 @@ class BusinessProfile {
     this.accountNumber,
     this.accountName,
     this.paymentQrCode,
+    this.invoicePrefix,
+    this.claimPrefix,
+    this.paymentPrefix,
+    this.poPrefix,
+    this.bookingPrefix,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -47,6 +57,11 @@ class BusinessProfile {
       accountNumber: json['account_number'] as String?,
       accountName: json['account_name'] as String?,
       paymentQrCode: json['payment_qr_code'] as String?,
+      invoicePrefix: json['invoice_prefix'] as String?,
+      claimPrefix: json['claim_prefix'] as String?,
+      paymentPrefix: json['payment_prefix'] as String?,
+      poPrefix: json['po_prefix'] as String?,
+      bookingPrefix: json['booking_prefix'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -66,6 +81,11 @@ class BusinessProfile {
       'account_number': accountNumber,
       'account_name': accountName,
       'payment_qr_code': paymentQrCode,
+      'invoice_prefix': invoicePrefix,
+      'claim_prefix': claimPrefix,
+      'payment_prefix': paymentPrefix,
+      'po_prefix': poPrefix,
+      'booking_prefix': bookingPrefix,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -99,6 +119,11 @@ class BusinessProfile {
     if (accountNumber != null) json['account_number'] = accountNumber;
     if (accountName != null) json['account_name'] = accountName;
     if (paymentQrCode != null) json['payment_qr_code'] = paymentQrCode;
+    if (invoicePrefix != null) json['invoice_prefix'] = invoicePrefix!.toUpperCase();
+    if (claimPrefix != null) json['claim_prefix'] = claimPrefix!.toUpperCase();
+    if (paymentPrefix != null) json['payment_prefix'] = paymentPrefix!.toUpperCase();
+    if (poPrefix != null) json['po_prefix'] = poPrefix!.toUpperCase();
+    if (bookingPrefix != null) json['booking_prefix'] = bookingPrefix!.toUpperCase();
     return json;
   }
 }

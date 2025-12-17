@@ -399,6 +399,11 @@ class DocumentUtils {
     String? businessAddress,
     String? businessPhone,
   }) async {
+    // Determine commission type: if rate is 0 and amount > 0, it's price_range
+    final commissionType = (commissionRate == 0.0 && commissionAmount > 0)
+        ? 'price_range'
+        : 'percentage';
+
     final pdfBytes = await PDFGenerator.generateClaimInvoice(
       claimNumber: claimNumber,
       vendorName: vendorName,
@@ -415,6 +420,7 @@ class DocumentUtils {
       businessName: businessName,
       businessAddress: businessAddress,
       businessPhone: businessPhone,
+      commissionType: commissionType,
     );
 
     await PDFGenerator.printPDF(pdfBytes, name: 'Invois Tuntutan $claimNumber');
@@ -487,6 +493,11 @@ class DocumentUtils {
     String? businessAddress,
     String? businessPhone,
   }) async {
+    // Determine commission type: if rate is 0 and amount > 0, it's price_range
+    final commissionType = (commissionRate == 0.0 && commissionAmount > 0)
+        ? 'price_range'
+        : 'percentage';
+
     final pdfBytes = await PDFGenerator.generateClaimInvoice(
       claimNumber: claimNumber,
       vendorName: vendorName,
@@ -503,6 +514,7 @@ class DocumentUtils {
       businessName: businessName,
       businessAddress: businessAddress,
       businessPhone: businessPhone,
+      commissionType: commissionType,
     );
 
     final file = await PDFGenerator.savePDF(
@@ -537,6 +549,11 @@ class DocumentUtils {
     String? businessAddress,
     String? businessPhone,
   }) async {
+    // Determine commission type: if rate is 0 and amount > 0, it's price_range
+    final commissionType = (commissionRate == 0.0 && commissionAmount > 0)
+        ? 'price_range'
+        : 'percentage';
+
     final pdfBytes = await PDFGenerator.generateClaimInvoice(
       claimNumber: claimNumber,
       vendorName: vendorName,
@@ -553,6 +570,7 @@ class DocumentUtils {
       businessName: businessName,
       businessAddress: businessAddress,
       businessPhone: businessPhone,
+      commissionType: commissionType,
     );
 
     await PDFGenerator.sharePDF(pdfBytes, fileName: 'claim_$claimNumber.pdf');

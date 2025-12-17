@@ -11,6 +11,74 @@ class PurchaseOrderRepository {
 
   PurchaseOrderRepository(this._supabase);
 
+  /// Get PO prefix from business_profile (optional user prefix)
+  /// Returns format: "USER_PREFIX-PO" or "PO" if no user prefix
+  Future<String> _getPOPrefix(String userId) async {
+    try {
+      final profileResponse = await _supabase
+          .from('business_profile')
+          .select('po_prefix')
+          .eq('business_owner_id', userId)
+          .maybeSingle();
+      
+      final userPrefix = profileResponse?['po_prefix'] as String?;
+      if (userPrefix != null && userPrefix.isNotEmpty) {
+        return '${userPrefix.toUpperCase()}-PO';
+      }
+      return 'PO'; // No user prefix, use original format
+    } catch (e) {
+      debugPrint('Error fetching PO prefix from business_profile: $e');
+      return 'PO'; // Fallback to default
+    }
+  }
+
+  /// Get next PO sequence number for current month (per owner)
+  Future<int> _getNextPOSeqForMonth({
+    required String userId,
+    required String prefixWithDash, // e.g. "PO-2512-" or "ABC-PO-2512-"
+  }) async {
+    final rows = await _supabase
+        .from('purchase_orders')
+        .select('po_number')
+        .eq('business_owner_id', userId)
+        .like('po_number', '$prefixWithDash%')
+        .order('po_number', ascending: false)
+        .limit(50);
+
+    int maxSeq = 0;
+    for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+      final poNumber = row['po_number'] as String?;
+      if (poNumber == null) continue;
+      final lastDash = poNumber.lastIndexOf('-');
+      if (lastDash < 0 || lastDash == poNumber.length - 1) continue;
+      final suffix = poNumber.substring(lastDash + 1);
+      final n = int.tryParse(suffix);
+      if (n != null && n > maxSeq) maxSeq = n;
+    }
+
+    return maxSeq + 1;
+  }
+
+  /// Generate PO number with prefix support
+  /// Format: USER_PREFIX-PO-YYMM-0001 or PO-YYMM-0001
+  Future<String> _generatePONumber() async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+
+    final prefix = await _getPOPrefix(userId);
+    final now = DateTime.now();
+    final yy = (now.year % 100).toString().padLeft(2, '0');
+    final mm = now.month.toString().padLeft(2, '0');
+    final prefixWithDash = '$prefix-$yy$mm-';
+    
+    final seqNum = await _getNextPOSeqForMonth(
+      userId: userId,
+      prefixWithDash: prefixWithDash,
+    );
+
+    return '$prefixWithDash${seqNum.toString().padLeft(4, '0')}';
+  }
+
   /// Get all purchase orders for current user
   Future<List<PurchaseOrder>> getAllPurchaseOrders() async {
     try {
@@ -266,8 +334,8 @@ class PurchaseOrderRepository {
     try {
       final original = await getPurchaseOrderById(id);
       
-      // Generate new PO number
-      final newPONumber = 'PO-${DateTime.now().millisecondsSinceEpoch}';
+      // Generate new PO number with prefix support
+      final newPONumber = await _generatePONumber();
       
       // Create new PO
       final userId = _supabase.auth.currentUser?.id;
@@ -341,8 +409,8 @@ class PurchaseOrderRepository {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
 
-      // Generate PO number
-      final poNumber = 'PO-${DateTime.now().millisecondsSinceEpoch}';
+      // Generate PO number with prefix support
+      final poNumber = await _generatePONumber();
 
       // Get cart items
       dynamic cartQuery = _supabase

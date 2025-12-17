@@ -122,45 +122,127 @@ class BookingItem {
 
 /// Bookings repository using Supabase
 class BookingsRepositorySupabase {
-  /// Generate booking number (B0001, B0002, etc.)
-  /// Uses max booking number with timestamp suffix to avoid race conditions
-  Future<String> _generateBookingNumber({int retryAttempt = 0}) async {
-    // Get the max booking number to avoid race conditions
-    final result = await supabase
+  /// Get booking prefix from business_profile (optional user prefix)
+  /// Returns format: "USER_PREFIX-BKG" or "BKG" if no user prefix
+  Future<String> _getBookingPrefix(String userId) async {
+    try {
+      final profileResponse = await supabase
+          .from('business_profile')
+          .select('booking_prefix')
+          .eq('business_owner_id', userId)
+          .maybeSingle();
+      
+      final userPrefix = profileResponse?['booking_prefix'] as String?;
+      if (userPrefix != null && userPrefix.isNotEmpty) {
+        return '${userPrefix.toUpperCase()}-BKG';
+      }
+      return 'BKG'; // No user prefix, use original format
+    } catch (e) {
+      return 'BKG'; // Fallback to default
+    }
+  }
+
+  /// Get next booking sequence number for current month (per owner)
+  Future<int> _getNextBookingSeqForMonth({
+    required String userId,
+    required String prefixWithDash, // e.g. "BKG-2512-" or "ABC-BKG-2512-"
+  }) async {
+    final rows = await supabase
         .from('bookings')
         .select('booking_number')
+        .eq('business_owner_id', userId)
+        .or('booking_number.like.$prefixWithDash%,booking_number.ilike.B%')
         .order('booking_number', ascending: false)
-        .limit(1)
-        .maybeSingle();
+        .limit(50);
 
-    int nextNumber = 1;
-    
-    if (result != null && result['booking_number'] != null) {
-      final lastNumber = result['booking_number'] as String;
-      // Extract number from format like "B0001" (ignore any suffix after number)
-      if (lastNumber.startsWith('B')) {
+    int maxSeq = 0;
+    for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+      final bookingNumber = row['booking_number'] as String?;
+      if (bookingNumber == null) continue;
+      
+      // Handle new format: USER_PREFIX-BKG-YYMM-XXXX
+      if (bookingNumber.contains(prefixWithDash)) {
+        final lastDash = bookingNumber.lastIndexOf('-');
+        if (lastDash >= 0 && lastDash < bookingNumber.length - 1) {
+          final suffix = bookingNumber.substring(lastDash + 1);
+          final n = int.tryParse(suffix);
+          if (n != null && n > maxSeq) maxSeq = n;
+        }
+      }
+      // Handle old format: B0001, B0002, etc.
+      else if (bookingNumber.startsWith('B') && bookingNumber.length > 1) {
         try {
-          // Extract just the numeric part (before any dash or suffix)
-          final numberPart = lastNumber.substring(1).split('-')[0].split('_')[0];
-          final lastNum = int.parse(numberPart);
-          nextNumber = lastNum + 1;
+          final numberPart = bookingNumber.substring(1).split('-')[0].split('_')[0];
+          final n = int.tryParse(numberPart);
+          if (n != null && n > maxSeq) maxSeq = n;
         } catch (e) {
-          // If parsing fails, fall back to count
-          final count = await supabase.from('bookings').count();
-          nextNumber = count + 1;
+          // Skip invalid formats
         }
       }
     }
 
-    // Add timestamp suffix for retry attempts to ensure uniqueness
-    final baseNumber = 'B${nextNumber.toString().padLeft(4, '0')}';
-    if (retryAttempt > 0) {
-      // Add timestamp suffix for uniqueness on retries
-      final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
-      return '${baseNumber}_$timestamp';
+    return maxSeq + 1;
+  }
+
+  /// Generate booking number with prefix support
+  /// Format: USER_PREFIX-BKG-YYMM-0001 or BKG-YYMM-0001
+  /// Falls back to old format (B0001) for compatibility
+  Future<String> _generateBookingNumber({int retryAttempt = 0}) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) throw Exception('User not authenticated');
+
+    try {
+      final prefix = await _getBookingPrefix(userId);
+      final now = DateTime.now();
+      final yy = (now.year % 100).toString().padLeft(2, '0');
+      final mm = now.month.toString().padLeft(2, '0');
+      final prefixWithDash = '$prefix-$yy$mm-';
+      
+      final seqNum = await _getNextBookingSeqForMonth(
+        userId: userId,
+        prefixWithDash: prefixWithDash,
+      );
+
+      final baseNumber = '$prefixWithDash${seqNum.toString().padLeft(4, '0')}';
+      
+      // Add timestamp suffix for retry attempts to ensure uniqueness
+      if (retryAttempt > 0) {
+        final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+        return '${baseNumber}_$timestamp';
+      }
+      
+      return baseNumber;
+    } catch (e) {
+      // Fallback to old format if prefix generation fails
+      final result = await supabase
+          .from('bookings')
+          .select('booking_number')
+          .order('booking_number', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      int nextNumber = 1;
+      if (result != null && result['booking_number'] != null) {
+        final lastNumber = result['booking_number'] as String;
+        if (lastNumber.startsWith('B')) {
+          try {
+            final numberPart = lastNumber.substring(1).split('-')[0].split('_')[0];
+            final lastNum = int.parse(numberPart);
+            nextNumber = lastNum + 1;
+          } catch (e) {
+            final count = await supabase.from('bookings').count();
+            nextNumber = count + 1;
+          }
+        }
+      }
+
+      final baseNumber = 'B${nextNumber.toString().padLeft(4, '0')}';
+      if (retryAttempt > 0) {
+        final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+        return '${baseNumber}_$timestamp';
+      }
+      return baseNumber;
     }
-    
-    return baseNumber;
   }
 
   /// Create a new booking
