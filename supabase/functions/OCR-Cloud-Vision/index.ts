@@ -135,42 +135,87 @@ function parseReceiptText(text: string): ParsedReceipt {
   const fullTextLower = text.toLowerCase();
 
   // ===== EXTRACT TOTAL AMOUNT =====
-  // Look for specific total keywords first (Malaysian receipt patterns)
-  const totalKeywords = [
-    /(?:TOTAL\s*SALE|GRAND\s*TOTAL|JUMLAH\s*BESAR|JUMLAH|TOTAL|AMOUNT\s*DUE)[:\s]*RM?\s*(\d+[.,]\d{2,4})/gi,
-    /(?:TUNAI|CASH|BAYAR)[:\s]*RM?\s*(\d+[.,]\d{2,4})/gi,
-    /(?:NETT|NET)[:\s]*RM?\s*(\d+[.,]\d{2,4})/gi,
-  ];
-
+  // Priority order: NET TOTAL > TOTAL > JUMLAH > CASH (cash is payment, not expense amount)
+  // We want the amount SPENT, not the amount PAID
+  
   let totalAmount: number | null = null;
   
-  for (const pattern of totalKeywords) {
-    const match = pattern.exec(text);
+  // Priority 1: NET TOTAL / NETT (most accurate - amount after discounts/tax)
+  const netTotalPattern = /(?:NET\s*TOTAL|NETT|NET)[:\s]*RM?\s*(\d+[.,]\d{2,4})/gi;
+  let match = netTotalPattern.exec(text);
+  if (match) {
+    const numStr = match[1].replace(",", ".");
+    const num = parseFloat(parseFloat(numStr).toFixed(2));
+    if (!isNaN(num) && num > 0) {
+      totalAmount = num;
+    }
+  }
+  
+  // Priority 2: TOTAL / GRAND TOTAL / JUMLAH BESAR (if net total not found)
+  if (!totalAmount) {
+    const totalPattern = /(?:TOTAL\s*SALE|GRAND\s*TOTAL|JUMLAH\s*BESAR|TOTAL|AMOUNT\s*DUE)[:\s]*RM?\s*(\d+[.,]\d{2,4})/gi;
+    match = totalPattern.exec(text);
     if (match) {
       const numStr = match[1].replace(",", ".");
-      // Handle 4 decimal places (e.g., 25.0000 -> 25.00)
       const num = parseFloat(parseFloat(numStr).toFixed(2));
       if (!isNaN(num) && num > 0) {
         totalAmount = num;
-        break;
       }
     }
   }
-
-  // If no total found, look for the largest amount in the text
+  
+  // Priority 3: JUMLAH (if total not found)
   if (!totalAmount) {
-    const allAmounts: number[] = [];
-    const amountPattern = /(\d+[.,]\d{2,4})/g;
-    let match;
-    while ((match = amountPattern.exec(text)) !== null) {
-      const num = parseFloat(match[1].replace(",", "."));
-      if (!isNaN(num) && num > 0 && num < 100000) {
-        allAmounts.push(parseFloat(num.toFixed(2)));
+    const jumlahPattern = /(?:JUMLAH)[:\s]*RM?\s*(\d+[.,]\d{2,4})/gi;
+    match = jumlahPattern.exec(text);
+    if (match) {
+      const numStr = match[1].replace(",", ".");
+      const num = parseFloat(parseFloat(numStr).toFixed(2));
+      if (!isNaN(num) && num > 0) {
+        totalAmount = num;
       }
     }
+  }
+  
+  // Priority 4: SUBTOTAL (if nothing else found - less ideal but better than cash)
+  if (!totalAmount) {
+    const subtotalPattern = /(?:SUBTOTAL)[:\s]*RM?\s*(\d+[.,]\d{2,4})/gi;
+    match = subtotalPattern.exec(text);
+    if (match) {
+      const numStr = match[1].replace(",", ".");
+      const num = parseFloat(parseFloat(numStr).toFixed(2));
+      if (!isNaN(num) && num > 0) {
+        totalAmount = num;
+      }
+    }
+  }
+  
+  // Last resort: Find largest amount (but exclude CASH/TUNAI amounts)
+  // CASH/TUNAI is payment amount, not expense amount
+  if (!totalAmount) {
+    const allAmounts: Array<{ value: number; line: string }> = [];
+    const amountPattern = /(\d+[.,]\d{2,4})/g;
+    
+    // Extract all amounts with their context
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Skip lines that contain CASH/TUNAI/BAYAR (these are payment amounts)
+      if (/(?:TUNAI|CASH|BAYAR|CHANGE|BAKI)/i.test(line)) {
+        continue;
+      }
+      
+      let lineMatch;
+      while ((lineMatch = amountPattern.exec(line)) !== null) {
+        const num = parseFloat(lineMatch[1].replace(",", "."));
+        if (!isNaN(num) && num > 0 && num < 100000) {
+          allAmounts.push({ value: parseFloat(num.toFixed(2)), line });
+        }
+      }
+    }
+    
     if (allAmounts.length > 0) {
-      // Get the largest amount (usually the total)
-      totalAmount = Math.max(...allAmounts);
+      // Get the largest amount (usually the total, excluding cash payments)
+      totalAmount = Math.max(...allAmounts.map(a => a.value));
     }
   }
   
@@ -249,11 +294,18 @@ function parseReceiptText(text: string): ParsedReceipt {
   // Look for patterns: ITEM_NAME followed by PRICE
   const itemsFound: Array<{ name: string; price: number }> = [];
   
+  // More flexible patterns for Malaysian receipts
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // Pattern 1: Item and price on same line (ITEM NAME    XX.XX)
-    const sameLineMatch = line.match(/^(.+?)\s{2,}(\d+[.,]\d{2,4})$/);
+    // Skip header/total lines early
+    if (/^(TOTAL|JUMLAH|SUBTOTAL|CASH|TUNAI|CHANGE|BAKI|ROUNDING|SST|GST|TAX|DISCOUNT|DISKAUN|QTY|ITEM|UNIT|PRICE|DESCRIPTION|CODE)/i.test(line)) {
+      continue;
+    }
+    
+    // Pattern 1: Item and price on same line (ITEM NAME    XX.XX or ITEM NAME RM XX.XX)
+    // More flexible: allow single space or multiple spaces, with or without RM
+    const sameLineMatch = line.match(/^(.+?)\s+(?:RM\s*)?(\d+[.,]\d{2,4})$/);
     if (sameLineMatch) {
       const name = sameLineMatch[1].trim();
       const price = parseFloat(parseFloat(sameLineMatch[2].replace(",", ".")).toFixed(2));
@@ -267,22 +319,50 @@ function parseReceiptText(text: string): ParsedReceipt {
     // Pattern 2: Item name on current line, price on next line
     if (isValidItemName(line) && i + 1 < lines.length) {
       const nextLine = lines[i + 1];
-      const priceMatch = nextLine.match(/^(\d+[.,]\d{2,4})$/);
+      const priceMatch = nextLine.match(/^(?:RM\s*)?(\d+[.,]\d{2,4})$/);
       if (priceMatch) {
         const price = parseFloat(parseFloat(priceMatch[1].replace(",", ".")).toFixed(2));
         if (price > 0 && price < 10000) {
           itemsFound.push({ name: line, price });
+          i++; // Skip next line since we used it
+          continue;
         }
       }
     }
 
     // Pattern 3: Product code + name + price (e.g., "123456 PRODUCT NAME  25.00")
-    const codeItemMatch = line.match(/^\d+\s+(.+?)\s{2,}(\d+[.,]\d{2,4})$/);
+    const codeItemMatch = line.match(/^\d+\s+(.+?)\s+(?:RM\s*)?(\d+[.,]\d{2,4})$/);
     if (codeItemMatch) {
       const name = codeItemMatch[1].trim();
       const price = parseFloat(parseFloat(codeItemMatch[2].replace(",", ".")).toFixed(2));
       
       if (isValidItemName(name) && price > 0 && price < 10000) {
+        itemsFound.push({ name, price });
+        continue;
+      }
+    }
+
+    // Pattern 4: Qty x Item Name = Price (e.g., "2 x ROTI CANAI  10.00")
+    const qtyItemMatch = line.match(/^(\d+)\s*x\s+(.+?)\s*=\s*(?:RM\s*)?(\d+[.,]\d{2,4})$/i);
+    if (qtyItemMatch) {
+      const name = qtyItemMatch[2].trim();
+      const price = parseFloat(parseFloat(qtyItemMatch[3].replace(",", ".")).toFixed(2));
+      
+      if (isValidItemName(name) && price > 0 && price < 10000) {
+        itemsFound.push({ name, price });
+        continue;
+      }
+    }
+
+    // Pattern 5: Item name with price at end (more flexible spacing)
+    // Matches: "ITEM NAME 25.00" or "ITEM NAME RM25.00"
+    const flexibleMatch = line.match(/^(.+?)\s+(?:RM\s*)?(\d+[.,]\d{2,4})\s*$/);
+    if (flexibleMatch) {
+      const name = flexibleMatch[1].trim();
+      const price = parseFloat(parseFloat(flexibleMatch[2].replace(",", ".")).toFixed(2));
+      
+      // Additional validation: name should have at least one letter
+      if (isValidItemName(name) && /[A-Za-z]/.test(name) && price > 0 && price < 10000) {
         itemsFound.push({ name, price });
       }
     }
@@ -297,18 +377,28 @@ function parseReceiptText(text: string): ParsedReceipt {
 }
 
 function isValidItemName(name: string): boolean {
-  if (!name || name.length < 2 || name.length > 60) return false;
+  if (!name || name.trim().length < 2 || name.trim().length > 100) return false;
+  
+  const trimmed = name.trim();
   
   // Skip if it's a total/subtotal line
-  if (/TOTAL|JUMLAH|SUBTOTAL|CASH|TUNAI|CHANGE|BAKI|ROUNDING|SST|GST|TAX|DISCOUNT|DISKAUN/i.test(name)) {
+  if (/^(TOTAL|JUMLAH|SUBTOTAL|CASH|TUNAI|CHANGE|BAKI|ROUNDING|SST|GST|TAX|DISCOUNT|DISKAUN|BALANCE|BAYAR|PAYMENT)/i.test(trimmed)) {
     return false;
   }
   
-  // Skip if it's mostly numbers
-  if (/^\d+$/.test(name.replace(/\s/g, ''))) return false;
+  // Skip if it's mostly numbers (but allow numbers with text like "2x" or "500g")
+  const withoutSpaces = trimmed.replace(/\s/g, '');
+  if (/^\d+$/.test(withoutSpaces)) return false;
   
   // Skip common headers
-  if (/^(QTY|ITEM|UNIT|PRICE|DESCRIPTION|CODE|TOTAL)/i.test(name)) return false;
+  if (/^(QTY|ITEM|UNIT|PRICE|DESCRIPTION|CODE|TOTAL|NO\.|BIL|RECEIPT|RESIT)/i.test(trimmed)) return false;
+  
+  // Must contain at least one letter (not just numbers and symbols)
+  if (!/[A-Za-z]/.test(trimmed)) return false;
+  
+  // Skip if it's a date/time pattern
+  if (/^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}$/.test(trimmed)) return false;
+  if (/^\d{1,2}:\d{2}/.test(trimmed)) return false;
   
   return true;
 }

@@ -552,15 +552,20 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
       ReceiptData? receiptData;
       if (_parsedReceipt != null) {
         final merchantText = _merchantController.text.trim();
+        
+        // Filter out items with empty or invalid names
+        final validItems = _parsedReceipt!.items
+            .where((item) => item.name.trim().isNotEmpty && item.name.trim().length >= 2)
+            .map((item) => ReceiptItem(
+                  name: item.name.trim(),
+                  price: item.price,
+                ))
+            .toList();
+        
         receiptData = ReceiptData(
           merchant: _parsedReceipt!.merchant ?? (merchantText.isEmpty ? null : merchantText),
           date: _parsedReceipt!.date ?? DateFormat('yyyy-MM-dd').format(_selectedDate),
-          items: _parsedReceipt!.items
-              .map((item) => ReceiptItem(
-                    name: item.name,
-                    price: item.price,
-                  ))
-              .toList(),
+          items: validItems,
           total: amount,
         );
       }
