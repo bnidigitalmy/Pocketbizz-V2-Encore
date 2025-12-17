@@ -125,8 +125,13 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
     _merchantController = TextEditingController();
     _notesController = TextEditingController();
     
-    // Initialize camera immediately
-    _initCamera();
+    // Initialize camera after a short delay to prevent immediate permission popup
+    // This helps prevent app hang when permission dialog appears
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) {
+        _initCamera();
+      }
+    });
   }
 
   @override
@@ -142,6 +147,16 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
   /// Initialize live camera
   Future<void> _initCamera() async {
     try {
+      // Small delay to prevent immediate permission popup that might cause hang
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      if (!mounted) return;
+      
+      // Check if mediaDevices is available
+      if (html.window.navigator.mediaDevices == null) {
+        throw Exception('Kamera tidak disokong dalam browser ini. Sila gunakan browser moden seperti Chrome, Firefox, atau Edge.');
+      }
+
       // Create video element
       _videoElement = html.VideoElement()
         ..autoplay = true
@@ -158,8 +173,19 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
         (int viewId) => _videoElement!,
       );
 
+      // Check permission status first (if supported)
+      try {
+        final permissionStatus = await html.window.navigator.permissions?.query({'name': 'camera'});
+        if (permissionStatus != null && permissionStatus.state == 'denied') {
+          throw Exception('Akses kamera telah ditolak. Sila benarkan akses kamera dalam tetapan browser anda.');
+        }
+      } catch (e) {
+        // Permission API not supported, continue anyway
+        // This is fine, we'll catch the error from getUserMedia
+      }
+
       // Request camera access (prefer back camera for receipt scanning)
-      _mediaStream = await html.window.navigator.mediaDevices?.getUserMedia({
+      _mediaStream = await html.window.navigator.mediaDevices!.getUserMedia({
         'video': {
           'facingMode': 'environment', // Back camera
           'width': {'ideal': 1280},
@@ -185,9 +211,25 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
       }
     } catch (e) {
       if (mounted) {
+        String errorMsg = 'Gagal akses kamera';
+        
+        // Provide user-friendly error messages
+        final errorString = e.toString().toLowerCase();
+        if (errorString.contains('notallowed') || errorString.contains('permission denied')) {
+          errorMsg = 'Akses kamera ditolak. Sila benarkan akses kamera dalam tetapan browser dan cuba lagi.';
+        } else if (errorString.contains('notfound') || errorString.contains('no camera')) {
+          errorMsg = 'Tiada kamera dijumpai. Sila pastikan peranti anda mempunyai kamera.';
+        } else if (errorString.contains('notreadable') || errorString.contains('could not start')) {
+          errorMsg = 'Kamera sedang digunakan oleh aplikasi lain. Sila tutup aplikasi lain dan cuba lagi.';
+        } else if (errorString.contains('overconstrained') || errorString.contains('constraint')) {
+          errorMsg = 'Kamera tidak menyokong resolusi yang diperlukan. Cuba gunakan kamera lain.';
+        } else {
+          errorMsg = 'Gagal akses kamera: ${e.toString()}';
+        }
+        
         setState(() {
           _isCameraError = true;
-          _cameraErrorMsg = e.toString();
+          _cameraErrorMsg = errorMsg;
         });
       }
     }
@@ -602,7 +644,23 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
                   style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _isCameraError = false;
+                      _cameraErrorMsg = null;
+                    });
+                    _initCamera(); // Retry camera access
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Cuba Lagi'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 ElevatedButton.icon(
                   onPressed: _pickFromGallery,
                   icon: const Icon(Icons.photo_library),
