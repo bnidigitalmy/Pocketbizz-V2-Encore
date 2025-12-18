@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/consignment_claims_repository_supabase.dart';
 // Note: Using original repo for now, can switch to refactored version later
@@ -2425,20 +2427,41 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         commissionType: _selectedVendor!.commissionType,
       );
 
-      // Save to file only (no auto-share)
-      final directory = await getApplicationDocumentsDirectory();
-      final filePath =
-          '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
-      final file = File(filePath);
-      await file.writeAsBytes(pdfBytes);
+      // Save to file (platform-specific)
+      if (kIsWeb) {
+        // Web: trigger download
+        final fileName = 'Claim_${_createdClaim!.claimNumber}.pdf';
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        html.AnchorElement(href: url)
+          ..setAttribute('download', fileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('PDF disimpan: $filePath'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ PDF berjaya dimuat turun!'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      } else {
+        // Mobile: save to device
+        final directory = await getApplicationDocumentsDirectory();
+        final filePath =
+            '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
+        final file = File(filePath);
+        await file.writeAsBytes(pdfBytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('PDF disimpan: $filePath'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -2483,9 +2506,31 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         commissionType: _selectedVendor!.commissionType,
       );
 
-      await Printing.layoutPdf(
-        onLayout: (format) async => pdfBytes,
-      );
+      if (kIsWeb) {
+        // Web: download PDF and user can print from browser
+        final fileName = 'Claim_${_createdClaim!.claimNumber}.pdf';
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        html.AnchorElement(href: url)
+          ..setAttribute('download', fileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ PDF dimuat turun. Sila buka dan cetak dari browser anda.'),
+              backgroundColor: AppColors.success,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        // Mobile: use printing plugin
+        await Printing.layoutPdf(
+          onLayout: (format) async => pdfBytes,
+        );
+      }
     } catch (e) {
       if (mounted) {
         _showError('Ralat mencetak: $e');
@@ -2530,12 +2575,25 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
         commissionType: _selectedVendor!.commissionType,
       );
 
-      // Save to temp file
-      final directory = await getTemporaryDirectory();
-      final filePath =
-          '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
-      final file = File(filePath);
-      await file.writeAsBytes(pdfBytes);
+      // Prepare PDF for sharing (platform-specific)
+      XFile? pdfFile;
+      if (kIsWeb) {
+        // Web: create blob URL for sharing
+        final fileName = 'Claim_${_createdClaim!.claimNumber}.pdf';
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        // Create XFile from bytes for web
+        pdfFile = XFile.fromData(pdfBytes, mimeType: 'application/pdf', name: fileName);
+        html.Url.revokeObjectUrl(url);
+      } else {
+        // Mobile: save to temp file
+        final directory = await getTemporaryDirectory();
+        final filePath =
+            '${directory.path}/Claim_${_createdClaim!.claimNumber}.pdf';
+        final file = File(filePath);
+        await file.writeAsBytes(pdfBytes);
+        pdfFile = XFile(filePath);
+      }
 
       // Get vendor phone
       final phone =
@@ -2553,19 +2611,46 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
           'Sila lihat lampiran PDF untuk butiran lengkap.';
 
       // Share with WhatsApp
-      await Share.shareXFiles(
-        [XFile(filePath)],
-        text: message,
-        subject: 'Invois Tuntutan ${_createdClaim!.claimNumber}',
-      );
+      if (kIsWeb) {
+        if (kIsWeb) {
+          // Web: Download PDF and open WhatsApp web with message
+          final fileName = 'Claim_${_createdClaim!.claimNumber}.pdf';
+          final blob = html.Blob([pdfBytes], 'application/pdf');
+          final url = html.Url.createObjectUrlFromBlob(blob);
+          html.AnchorElement(href: url)
+            ..setAttribute('download', fileName)
+            ..click();
+          html.Url.revokeObjectUrl(url);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ PDF sedia untuk dihantar melalui WhatsApp'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+          // Open WhatsApp Web with message
+          final whatsappUrl = 'https://wa.me/$phone?text=${Uri.encodeComponent(message)}';
+          html.window.open(whatsappUrl, '_blank');
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('✅ PDF dimuat turun. WhatsApp Web dibuka untuk hantar mesej.'),
+                backgroundColor: AppColors.success,
+              ),
+            );
+          }
+        } else {
+          // Mobile: Share via Share plugin
+          await Share.shareXFiles(
+            [pdfFile],
+            text: message,
+            subject: 'Invois Tuntutan ${_createdClaim!.claimNumber}',
+          );
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('✅ PDF sedia untuk dihantar melalui WhatsApp'),
+                backgroundColor: AppColors.success,
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
