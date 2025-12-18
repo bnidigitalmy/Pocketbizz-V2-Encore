@@ -131,7 +131,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
     setState(() => _isLoading = true);
     
     try {
-      final orders = await _poRepo.getAllPurchaseOrders();
+      final orders = await _poRepo.getAllPurchaseOrders(limit: 100);
       setState(() {
         _purchaseOrders = orders;
         _isLoading = false;

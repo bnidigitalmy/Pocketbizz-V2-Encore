@@ -46,7 +46,7 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
   Future<void> _loadAnnouncements() async {
     setState(() => _isLoading = true);
     try {
-      final announcements = await _repo.getAllAnnouncements();
+      final announcements = await _repo.getAllAnnouncements(limit: 100);
       setState(() {
         _announcements = announcements;
         _isLoading = false;

@@ -31,7 +31,7 @@ class _CategoryDropdownState extends State<CategoryDropdown> {
 
   Future<void> _loadCategories() async {
     try {
-      final categories = await _repo.getAll();
+      final categories = await _repo.getAll(limit: 100);
       setState(() {
         _categories = categories;
         _loading = false;

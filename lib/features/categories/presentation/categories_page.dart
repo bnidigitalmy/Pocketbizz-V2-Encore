@@ -24,7 +24,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
   Future<void> _loadCategories() async {
     setState(() => _loading = true);
     try {
-      final categories = await _repo.getAll();
+      final categories = await _repo.getAll(limit: 100);
       setState(() {
         _categories = categories;
         _loading = false;

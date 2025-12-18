@@ -22,7 +22,12 @@ yarn-error.log
 # Environment
 .env
 .env.local
+.env.*
+!.env.example
 .secrets.local.cue
+
+# Test files with sensitive data
+lib/main_simple.dart
 
 # OS
 .DS_Store

@@ -219,13 +219,13 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
       List<Vendor> suppliers = [];
       
       try {
-        cartItems = await _cartRepo.getAllCartItems();
+        cartItems = await _cartRepo.getAllCartItems(limit: 100);
       } catch (e) {
         debugPrint('Error loading cart items: $e');
       }
       
       try {
-        allStockItems = await _stockRepo.getAllStockItems();
+        allStockItems = await _stockRepo.getAllStockItems(limit: 100);
       } catch (e) {
         debugPrint('Error loading stock items: $e');
       }
@@ -238,7 +238,7 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
       }
       
       try {
-        suppliers = await _vendorRepo.getAllVendors(activeOnly: true);
+        suppliers = await _vendorRepo.getAllVendors(activeOnly: true, limit: 100);
       } catch (e) {
         debugPrint('Error loading suppliers: $e');
       }

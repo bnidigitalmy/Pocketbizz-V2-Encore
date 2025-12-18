@@ -17,10 +17,12 @@ class FeedbackRepositorySupabase {
     return data.map(FeedbackRequest.fromJson).toList();
   }
 
-  /// Get all feedback (admin only)
+  /// Get all feedback (admin only) with pagination
   Future<List<FeedbackRequest>> getAllFeedback({
     String? status,
     String? type,
+    int limit = 100,
+    int offset = 0,
   }) async {
     var query = supabase.from('feedback_requests').select();
 
@@ -31,7 +33,9 @@ class FeedbackRepositorySupabase {
       query = query.eq('type', type);
     }
 
-    final response = await query.order('created_at', ascending: false);
+    final response = await query
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1); // Add pagination
     final data = (response as List).cast<Map<String, dynamic>>();
     return data.map(FeedbackRequest.fromJson).toList();
   }

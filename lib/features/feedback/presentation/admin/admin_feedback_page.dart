@@ -47,6 +47,7 @@ class _AdminFeedbackPageState extends State<AdminFeedbackPage> {
       final feedback = await _repo.getAllFeedback(
         status: _filterStatus,
         type: _filterType,
+        limit: 100,
       );
       setState(() {
         _allFeedback = feedback;

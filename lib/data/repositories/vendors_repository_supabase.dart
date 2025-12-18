@@ -7,7 +7,11 @@ class VendorsRepositorySupabase {
   // ============================================================================
 
   /// Get all vendors
-  Future<List<Vendor>> getAllVendors({bool activeOnly = false}) async {
+  Future<List<Vendor>> getAllVendors({
+    bool activeOnly = false,
+    int limit = 100,
+    int offset = 0,
+  }) async {
     dynamic query = supabase
         .from('vendors')
         .select();
@@ -16,7 +20,9 @@ class VendorsRepositorySupabase {
       query = query.eq('is_active', true);
     }
 
-    query = query.order('name');
+    query = query
+        .order('name')
+        .range(offset, offset + limit - 1); // Add pagination
 
     final response = await query;
     return (response as List)

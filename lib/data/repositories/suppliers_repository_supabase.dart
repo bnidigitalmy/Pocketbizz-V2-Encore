@@ -11,7 +11,10 @@ import '../models/supplier.dart';
 /// Uses vendors table (all vendors are treated as suppliers for this module)
 class SuppliersRepository {
   /// Get all suppliers
-  Future<List<Supplier>> getAllSuppliers() async {
+  Future<List<Supplier>> getAllSuppliers({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     try {
       final userId = supabase.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
@@ -20,7 +23,8 @@ class SuppliersRepository {
           .from('vendors')
           .select()
           .eq('business_owner_id', userId)
-          .order('name');
+          .order('name')
+          .range(offset, offset + limit - 1); // Add pagination
 
       return (response as List)
           .map((json) => Supplier.fromJson(json as Map<String, dynamic>))

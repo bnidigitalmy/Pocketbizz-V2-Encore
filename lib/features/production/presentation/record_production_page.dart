@@ -54,7 +54,7 @@ class _RecordProductionPageState extends State<RecordProductionPage> {
     setState(() => _isLoading = true);
 
     try {
-      final products = await _productsRepo.getAll();
+      final products = await _productsRepo.getAll(limit: 100);
       setState(() {
         _products = products;
         _isLoading = false;

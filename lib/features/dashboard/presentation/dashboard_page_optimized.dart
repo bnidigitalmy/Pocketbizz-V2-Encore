@@ -253,7 +253,7 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
   Future<Map<String, dynamic>> _loadPendingTasks() async {
     try {
       // Get all purchase orders and filter by status
-      final allPOs = await _poRepo.getAllPurchaseOrders();
+      final allPOs = await _poRepo.getAllPurchaseOrders(limit: 100);
       final pendingPOs = allPOs.where((po) => po.status == 'pending').toList();
 
       // Get low stock items count

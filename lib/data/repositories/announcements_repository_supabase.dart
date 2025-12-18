@@ -69,6 +69,8 @@ class AnnouncementsRepositorySupabase {
   Future<List<Announcement>> getAllAnnouncements({
     bool? isActive,
     String? type,
+    int limit = 100,
+    int offset = 0,
   }) async {
     var query = supabase.from('announcements').select();
 
@@ -79,7 +81,9 @@ class AnnouncementsRepositorySupabase {
       query = query.eq('type', type);
     }
 
-    final response = await query.order('created_at', ascending: false);
+    final response = await query
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1); // Add pagination
     final data = (response as List).cast<Map<String, dynamic>>();
     return data.map(Announcement.fromJson).toList();
   }

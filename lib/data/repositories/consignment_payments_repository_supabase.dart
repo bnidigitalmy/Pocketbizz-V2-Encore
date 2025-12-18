@@ -7,7 +7,10 @@ import '../models/consignment_claim.dart';
 class ConsignmentPaymentsRepositorySupabase {
   
   /// Get all payments
-  Future<List<ConsignmentPayment>> getAll() async {
+  Future<List<ConsignmentPayment>> getAll({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     try {
       final userId = SupabaseHelper.currentUserId;
       if (userId == null) {
@@ -18,7 +21,8 @@ class ConsignmentPaymentsRepositorySupabase {
           .from('consignment_payments')
           .select('*')
           .eq('business_owner_id', userId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1); // Add pagination
 
       return (response as List)
           .map((json) => ConsignmentPayment.fromJson(json))

@@ -35,10 +35,12 @@ class ProductionRepository {
   // PRODUCTION BATCHES CRUD
   // ============================================================================
 
-  /// Get all production batches
+  /// Get all production batches with pagination
   Future<List<ProductionBatch>> getAllBatches({
     String? productId,
     bool onlyWithRemaining = false,
+    int limit = 100,
+    int offset = 0,
   }) async {
     try {
       dynamic query = _supabase
@@ -56,7 +58,9 @@ class ProductionRepository {
         query = query.gt('remaining_qty', 0);
       }
 
-      query = query.order('batch_date', ascending: false);
+      query = query
+          .order('batch_date', ascending: false)
+          .range(offset, offset + limit - 1); // Add pagination
 
       final response = await query;
       return (response as List).map((json) {

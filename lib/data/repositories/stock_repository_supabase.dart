@@ -15,8 +15,12 @@ class StockRepository {
   // STOCK ITEMS CRUD
   // ============================================================================
 
-  /// Get all stock items for current user
-  Future<List<StockItem>> getAllStockItems({bool includeArchived = false}) async {
+  /// Get all stock items for current user with pagination
+  Future<List<StockItem>> getAllStockItems({
+    bool includeArchived = false,
+    int limit = 100,
+    int offset = 0,
+  }) async {
     try {
       dynamic query = _supabase
           .from('stock_items')
@@ -26,7 +30,9 @@ class StockRepository {
         query = query.eq('is_archived', false);
       }
 
-      query = query.order('name', ascending: true);
+      query = query
+          .order('name', ascending: true)
+          .range(offset, offset + limit - 1); // Add pagination
 
       final response = await query;
       return (response as List).map((json) => StockItem.fromJson(json)).toList();

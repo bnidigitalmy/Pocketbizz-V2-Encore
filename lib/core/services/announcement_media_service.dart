@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../supabase/supabase_client.dart';
 import '../../data/models/announcement_media.dart';
 
@@ -193,16 +194,22 @@ class AnnouncementMediaService {
     }
 
     final encodedPath = Uri.encodeComponent(filePath);
-    final storageUrl =
-        'https://gxllowlurizrkvpdircw.supabase.co/storage/v1/object/$_bucketName/$encodedPath';
+    // Get Supabase URL from environment (required)
+    final supabaseUrl = dotenv.env['SUPABASE_URL'];
+    final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
+    
+    if (supabaseUrl == null || supabaseAnonKey == null) {
+      throw Exception('SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env file');
+    }
+    
+    final storageUrl = '$supabaseUrl/storage/v1/object/$_bucketName/$encodedPath';
 
     final response = await http.put(
       Uri.parse(storageUrl),
       headers: {
         'Authorization': 'Bearer $accessToken',
         'Content-Type': contentType,
-        'apikey':
-            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4bGxvd2x1cml6cmt2cGRpcmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTAyMDksImV4cCI6MjA3OTc4NjIwOX0.Avft6LyKGwmU8JH3hXmO7ukNBlgG1XngjBX-prObycs',
+        'apikey': supabaseAnonKey,
         'x-upsert': 'false',
       },
       body: bytes,

@@ -4,7 +4,10 @@ import '../models/shopping_cart_item.dart';
 /// Shopping Cart Repository using Supabase
 class ShoppingCartRepository {
   /// Get all cart items for current user
-  Future<List<ShoppingCartItem>> getAllCartItems() async {
+  Future<List<ShoppingCartItem>> getAllCartItems({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     try {
       final userId = supabase.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
@@ -15,7 +18,8 @@ class ShoppingCartRepository {
           .eq('business_owner_id', userId)
           .eq('status', 'pending')
           .order('priority', ascending: false)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1); // Add pagination
 
       return (response as List)
           .map((json) => ShoppingCartItem.fromJson(json))

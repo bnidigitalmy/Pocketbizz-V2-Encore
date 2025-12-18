@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/supabase/supabase_client.dart';
 import 'core/utils/date_time_helper.dart';
+import 'core/config/env_config.dart';
 import 'features/auth/presentation/login_page.dart';
 import 'features/auth/presentation/forgot_password_page.dart';
 import 'features/auth/presentation/reset_password_page.dart';
@@ -54,6 +56,13 @@ import 'features/announcements/presentation/admin/admin_announcements_page.dart'
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Load environment variables
+  try {
+    await EnvConfig.load();
+  } catch (e) {
+    print('Warning: Could not load environment variables: $e');
+  }
+
   try {
     // Initialize locale data for date formatting (non-blocking with timeout)
     await initializeDateFormatting('ms_MY', null).timeout(
@@ -82,9 +91,17 @@ Future<void> main() async {
 
   // Initialize Supabase with error handling to prevent hang
   try {
+    // Try to use environment variables first, fallback to hardcoded for development
+    final supabaseUrl = dotenv.env['SUPABASE_URL'] ?? 'https://gxllowlurizrkvpdircw.supabase.co';
+    final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'] ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4bGxvd2x1cml6cmt2cGRpcmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTAyMDksImV4cCI6MjA3OTc4NjIwOX0.Avft6LyKGwmU8JH3hXmO7ukNBlgG1XngjBX-prObycs';
+    
+    if (dotenv.env['SUPABASE_URL'] == null || dotenv.env['SUPABASE_ANON_KEY'] == null) {
+      print('⚠️ Warning: Using hardcoded Supabase credentials. Please create .env file for production!');
+    }
+    
     await Supabase.initialize(
-      url: 'https://gxllowlurizrkvpdircw.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4bGxvd2x1cml6cmt2cGRpcmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTAyMDksImV4cCI6MjA3OTc4NjIwOX0.Avft6LyKGwmU8JH3hXmO7ukNBlgG1XngjBX-prObycs',
+      url: supabaseUrl,
+      anonKey: supabaseAnonKey,
     ).timeout(
       const Duration(seconds: 10),
     );

@@ -17,12 +17,16 @@ class CommunityLinksRepositorySupabase {
   }
 
   /// Get all community links (admin only)
-  Future<List<CommunityLink>> getAllLinks() async {
+  Future<List<CommunityLink>> getAllLinks({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     final response = await supabase
         .from('community_links')
         .select()
         .order('display_order', ascending: true)
-        .order('created_at', ascending: true);
+        .order('created_at', ascending: true)
+        .range(offset, offset + limit - 1); // Add pagination
 
     final data = (response as List).cast<Map<String, dynamic>>();
     return data.map(CommunityLink.fromJson).toList();

@@ -92,7 +92,7 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
       }
       
       // Get all stock items
-      _availableStock = await _stockRepo.getAllStockItems();
+      _availableStock = await _stockRepo.getAllStockItems(limit: 100);
       _stockMap = {for (var stock in _availableStock) stock.id: stock};
 
       setState(() => _isLoading = false);

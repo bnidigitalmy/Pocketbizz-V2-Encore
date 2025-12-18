@@ -51,8 +51,8 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
 
     try {
       final [productsResult, batchesResult, scheduledResult] = await Future.wait([
-        _productsRepo.listProducts(),
-        _productionRepo.getAllBatches(),
+        _productsRepo.listProducts(limit: 100),
+        _productionRepo.getAllBatches(limit: 100),
         _plannerRepo.listTasks(scope: 'upcoming', tags: const ['production'], limit: 20),
       ]);
 

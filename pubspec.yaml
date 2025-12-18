@@ -24,6 +24,7 @@ dependencies:
   timezone: ^0.9.2
   shared_preferences: ^2.2.2
   table_calendar: ^3.1.2
+  flutter_dotenv: ^5.1.0
   
   # HTTP (for any remaining REST calls)
   http: ^1.2.0
@@ -67,4 +68,5 @@ flutter:
   assets:
     - assets/images/
     - assets/translations/
+    - .env
 

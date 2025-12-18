@@ -3,13 +3,17 @@ import '../models/category.dart';
 
 class CategoriesRepositorySupabase {
   /// Get all categories for current user
-  Future<List<Category>> getAll() async {
+  Future<List<Category>> getAll({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     try {
       final response = await supabase
           .from('categories')
           .select()
           .eq('is_active', true)
-          .order('name', ascending: true);
+          .order('name', ascending: true)
+          .range(offset, offset + limit - 1); // Add pagination
 
       return (response as List)
           .map((json) => Category.fromJson(json))

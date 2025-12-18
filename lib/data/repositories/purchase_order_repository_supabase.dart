@@ -80,7 +80,10 @@ class PurchaseOrderRepository {
   }
 
   /// Get all purchase orders for current user
-  Future<List<PurchaseOrder>> getAllPurchaseOrders() async {
+  Future<List<PurchaseOrder>> getAllPurchaseOrders({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
@@ -90,7 +93,8 @@ class PurchaseOrderRepository {
           .from('purchase_orders')
           .select('*, purchase_order_items(*)')
           .eq('business_owner_id', userId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1); // Add pagination
 
       return (response as List).map((json) {
         // Convert items array to PurchaseOrderItem list

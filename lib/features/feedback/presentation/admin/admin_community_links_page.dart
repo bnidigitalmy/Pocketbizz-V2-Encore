@@ -41,7 +41,7 @@ class _AdminCommunityLinksPageState extends State<AdminCommunityLinksPage> {
   Future<void> _loadLinks() async {
     setState(() => _isLoading = true);
     try {
-      final links = await _repo.getAllLinks();
+      final links = await _repo.getAllLinks(limit: 100);
       setState(() {
         _links = links;
         _isLoading = false;

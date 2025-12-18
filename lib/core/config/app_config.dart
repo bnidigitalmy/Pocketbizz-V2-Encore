@@ -1,5 +1,7 @@
 /// App Configuration
 /// Centralized configuration for API keys and secrets
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class AppConfig {
   // Google OAuth Configuration
   // Get these from Google Cloud Console > APIs & Services > Credentials
@@ -7,7 +9,11 @@ class AppConfig {
   
   /// Google OAuth Client ID for Web Application
   /// Format: xxxxxx-xxxxx.apps.googleusercontent.com
-  static const String googleOAuthClientId = '214368454746-pvb44rkgman7elikd61q37673mlrdnuf.apps.googleusercontent.com';
+  /// Falls back to hardcoded value if not in environment variables
+  static String get googleOAuthClientId {
+    return dotenv.env['GOOGLE_OAUTH_CLIENT_ID'] ?? 
+           '214368454746-pvb44rkgman7elikd61q37673mlrdnuf.apps.googleusercontent.com';
+  }
   
   // Note: Client Secret is NOT needed for client-side OAuth flows
   // Client Secret is only used for server-side OAuth (backend-to-backend)

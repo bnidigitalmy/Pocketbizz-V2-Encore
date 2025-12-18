@@ -504,7 +504,10 @@ class ConsignmentClaimsRepositorySupabase {
   }
 
   /// Get claim by ID with items
-  Future<List<ConsignmentClaim>> getAll() async {
+  Future<List<ConsignmentClaim>> getAll({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     try {
       final userId = SupabaseHelper.currentUserId;
       if (userId == null) {
@@ -518,7 +521,8 @@ class ConsignmentClaimsRepositorySupabase {
             vendors (id, name, phone)
           ''')
           .eq('business_owner_id', userId)
-          .order('claim_date', ascending: false);
+          .order('claim_date', ascending: false)
+          .range(offset, offset + limit - 1); // Add pagination
 
       return (response as List).map((json) {
         final claimJson = json as Map<String, dynamic>;

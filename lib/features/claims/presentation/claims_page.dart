@@ -137,8 +137,8 @@ class _ClaimsPageState extends State<ClaimsPage> {
 
     setState(() => _isLoadingMore = true);
     try {
-      final claims = await _claimsRepo.getAll();
-      final payments = await _paymentsRepo.getAll();
+      final claims = await _claimsRepo.getAll(limit: 100);
+      final payments = await _paymentsRepo.getAll(limit: 100);
 
       if (mounted) {
         setState(() {

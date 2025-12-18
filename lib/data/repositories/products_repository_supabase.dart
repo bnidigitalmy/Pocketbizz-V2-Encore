@@ -74,8 +74,13 @@ class ProductsRepositorySupabase {
     return Product.fromJson(json);
   }
 
-  /// Get all products
-  Future<List<Product>> getAll() async {
+  /// Get all products with pagination
+  /// [limit] - Maximum number of products to fetch (default: 100)
+  /// [offset] - Number of products to skip (default: 0)
+  Future<List<Product>> getAll({
+    int limit = 100,
+    int offset = 0,
+  }) async {
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) {
       throw Exception('User not authenticated');
@@ -87,7 +92,8 @@ class ProductsRepositorySupabase {
           .select()
           .eq('business_owner_id', userId) // Filter by user's business_owner_id
           .eq('is_active', true)
-          .order('name', ascending: true);
+          .order('name', ascending: true)
+          .range(offset, offset + limit - 1); // Add pagination
 
       return (response as List).map((json) => _fromSupabaseJson(json)).toList();
     } catch (e) {

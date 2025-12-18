@@ -55,7 +55,7 @@ class _StockPageState extends State<StockPage> {
     setState(() => _isLoading = true);
 
     try {
-      final items = await _stockRepository.getAllStockItems();
+      final items = await _stockRepository.getAllStockItems(limit: 100);
       
       // Load batch summaries for all items
       final summaries = <String, Map<String, dynamic>>{};

@@ -156,7 +156,7 @@ class _DeliveriesPageState extends State<DeliveriesPage> {
 
   Future<void> _loadProducts() async {
     try {
-      final products = await _productsRepo.getAll();
+      final products = await _productsRepo.getAll(limit: 100);
       if (mounted) {
         setState(() => _products = products);
       }

@@ -89,8 +89,8 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
 
   Future<void> _loadData() async {
     try {
-      final stockItems = await _stockRepo.getAllStockItems();
-      final categories = await _categoriesRepo.getAll();
+      final stockItems = await _stockRepo.getAllStockItems(limit: 100);
+      final categories = await _categoriesRepo.getAll(limit: 100);
       
       setState(() {
         _stockItems = stockItems;

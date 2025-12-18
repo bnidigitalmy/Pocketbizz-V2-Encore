@@ -31,7 +31,7 @@ class _SuppliersPageState extends State<SuppliersPage> {
   Future<void> _loadSuppliers() async {
     setState(() => _loading = true);
     try {
-      final suppliers = await _repo.getAllSuppliers();
+      final suppliers = await _repo.getAllSuppliers(limit: 100);
       setState(() {
         _suppliers = suppliers;
         _loading = false;
