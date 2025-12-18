@@ -101,9 +101,10 @@ class SubscriptionRepositorySupabase {
         json['duration_months'] = planData['duration_months'] as int? ?? 1;
       }
 
-      // Apply grace/expiry transitions on read
-      final updated = await _applyGraceTransitions(json);
-      return Subscription.fromJson(updated);
+      // Note: Grace/expiry transitions are now handled by cron job
+      // (subscription-transitions Edge Function) to avoid performance issues
+      // Transitions are no longer applied on every read
+      return Subscription.fromJson(json);
     } catch (e) {
       throw Exception('Failed to fetch user subscription: $e');
     }

@@ -171,6 +171,69 @@ const jsonResponse = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
+// Rate limiting configuration
+const RATE_LIMIT_CONFIG = {
+  // IP-based: 10 requests per minute per IP
+  ip: {
+    maxRequests: 10,
+    windowMinutes: 1,
+  },
+  // Order-number-based: 5 requests per hour per order (prevent duplicate processing)
+  orderNumber: {
+    maxRequests: 5,
+    windowMinutes: 60,
+  },
+};
+
+// Get client IP address from request
+const getClientIP = (req: Request): string => {
+  // Try X-Forwarded-For header (from proxy/load balancer)
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    // X-Forwarded-For can contain multiple IPs, take the first one
+    return forwardedFor.split(",")[0].trim();
+  }
+  
+  // Try X-Real-IP header
+  const realIP = req.headers.get("x-real-ip");
+  if (realIP) {
+    return realIP.trim();
+  }
+  
+  // Fallback: use connection remote address (if available)
+  // Note: In Deno Deploy, this might not be available
+  return "unknown";
+};
+
+// Check rate limit using database function
+const checkRateLimit = async (
+  identifier: string,
+  identifierType: "ip" | "order_number",
+  maxRequests: number,
+  windowMinutes: number
+): Promise<boolean> => {
+  try {
+    const { data, error } = await supabase.rpc("check_webhook_rate_limit", {
+      p_identifier: identifier,
+      p_identifier_type: identifierType,
+      p_max_requests: maxRequests,
+      p_window_minutes: windowMinutes,
+    });
+
+    if (error) {
+      console.error(`[${new Date().toISOString()}] Rate limit check error:`, error);
+      // On error, allow request (fail open) but log it
+      return true;
+    }
+
+    return data === true;
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Rate limit check exception:`, error);
+    // On exception, allow request (fail open) but log it
+    return true;
+  }
+};
+
 Deno.serve(async (req) => {
   console.log(`[${new Date().toISOString()}] Webhook received: ${req.method} ${req.url}`);
   
@@ -180,6 +243,28 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Rate limiting: Check IP-based limit
+    const clientIP = getClientIP(req);
+    console.log(`[${new Date().toISOString()}] Client IP: ${clientIP}`);
+    
+    const ipAllowed = await checkRateLimit(
+      clientIP,
+      "ip",
+      RATE_LIMIT_CONFIG.ip.maxRequests,
+      RATE_LIMIT_CONFIG.ip.windowMinutes
+    );
+
+    if (!ipAllowed) {
+      console.warn(`[${new Date().toISOString()}] Rate limited by IP: ${clientIP}`);
+      return jsonResponse(
+        { 
+          error: "Too many requests", 
+          message: "Rate limit exceeded. Please try again later." 
+        },
+        429
+      );
+    }
+
     const payload = await parseBody(req);
     console.log(`[${new Date().toISOString()}] Payload received:`, JSON.stringify(payload));
 
@@ -203,6 +288,25 @@ Deno.serve(async (req) => {
     if (!orderNumber) {
       console.warn(`[${new Date().toISOString()}] Missing order_number in payload`);
       return jsonResponse({ message: "Missing order_number" });
+    }
+
+    // Rate limiting: Check order-number-based limit (prevent duplicate processing)
+    const orderAllowed = await checkRateLimit(
+      orderNumber,
+      "order_number",
+      RATE_LIMIT_CONFIG.orderNumber.maxRequests,
+      RATE_LIMIT_CONFIG.orderNumber.windowMinutes
+    );
+
+    if (!orderAllowed) {
+      console.warn(`[${new Date().toISOString()}] Rate limited by order_number: ${orderNumber}`);
+      return jsonResponse(
+        { 
+          error: "Too many requests for this order", 
+          message: "This order has been processed too many times. Please contact support if this is an error." 
+        },
+        429
+      );
     }
 
     // Try to find payment by order_number (BCL.my order number)

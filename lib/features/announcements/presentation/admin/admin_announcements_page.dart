@@ -21,12 +21,26 @@ class AdminAnnouncementsPage extends StatefulWidget {
 class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
   final _repo = AnnouncementsRepositorySupabase();
   bool _isLoading = true;
+  bool _isAdmin = false;
   List<Announcement> _announcements = [];
 
   @override
   void initState() {
     super.initState();
-    _loadAnnouncements();
+    _checkAdminAndLoad();
+  }
+
+  Future<void> _checkAdminAndLoad() async {
+    final isAdmin = await AdminHelper.isAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+        _isLoading = false;
+      });
+      if (_isAdmin) {
+        _loadAnnouncements();
+      }
+    }
   }
 
   Future<void> _loadAnnouncements() async {
@@ -422,7 +436,13 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!AdminHelper.isAdmin()) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_isAdmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('Akses Ditolak')),
         body: const Center(child: Text('Hanya admin boleh akses halaman ini.')),

@@ -26,6 +26,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
+  bool _isAdmin = false;
 
   final List<Widget> _pages = [
     const DashboardPageOptimized(),
@@ -33,6 +34,19 @@ class _HomePageState extends State<HomePage> {
     const ProductListPage(),
     const SalesPage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize admin cache early
+    AdminHelper.initializeCache().then((_) {
+      if (mounted) {
+        setState(() {
+          _isAdmin = AdminHelper.isAdminSync();
+        });
+      }
+    });
+  }
 
   /// Open Receipt Scan page
   void _openReceiptScan() {
@@ -398,7 +412,7 @@ class _HomePageState extends State<HomePage> {
             const Divider(),
             
             // Admin Section (only visible to admins)
-            if (AdminHelper.isAdmin()) ...[
+            if (_isAdmin) ...[
               const Padding(
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Text(

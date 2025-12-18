@@ -41,6 +41,8 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
     _productsRepo = ProductsRepositorySupabase();
     _cartRepo = ShoppingCartRepository();
     _plannerRepo = PlannerTasksRepositorySupabase();
+    // Initialize admin cache early so isAdminSync() works
+    AdminHelper.initializeCache();
     _loadData();
   }
 
@@ -377,7 +379,7 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
 
   Widget _buildBatchCard(ProductionBatch batch) {
     final expiryStatus = _getExpiryStatus(batch.expiryDate);
-    final isAdmin = AdminHelper.isAdmin();
+    final isAdmin = AdminHelper.isAdminSync();
     final canEdit = batch.canBeEdited(isAdmin: isAdmin);
     
     // Find product to get image
@@ -669,7 +671,7 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
   }
 
   Future<void> _showDeleteConfirmDialog(ProductionBatch batch) async {
-    final isAdmin = AdminHelper.isAdmin();
+    final isAdmin = AdminHelper.isAdminSync();
     final hoursSinceCreation = DateTime.now().difference(batch.createdAt).inHours;
     final canDelete = isAdmin || hoursSinceCreation < 24;
 

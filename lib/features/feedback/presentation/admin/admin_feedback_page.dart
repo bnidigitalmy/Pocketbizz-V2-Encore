@@ -17,6 +17,7 @@ class AdminFeedbackPage extends StatefulWidget {
 class _AdminFeedbackPageState extends State<AdminFeedbackPage> {
   final _repo = FeedbackRepositorySupabase();
   bool _isLoading = true;
+  bool _isAdmin = false;
   List<FeedbackRequest> _allFeedback = [];
   String? _filterStatus;
   String? _filterType;
@@ -24,7 +25,20 @@ class _AdminFeedbackPageState extends State<AdminFeedbackPage> {
   @override
   void initState() {
     super.initState();
-    _loadFeedback();
+    _checkAdminAndLoad();
+  }
+
+  Future<void> _checkAdminAndLoad() async {
+    final isAdmin = await AdminHelper.isAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+        _isLoading = false;
+      });
+      if (_isAdmin) {
+        _loadFeedback();
+      }
+    }
   }
 
   Future<void> _loadFeedback() async {
@@ -193,7 +207,13 @@ class _AdminFeedbackPageState extends State<AdminFeedbackPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!AdminHelper.isAdmin()) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_isAdmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('Akses Ditolak')),
         body: const Center(

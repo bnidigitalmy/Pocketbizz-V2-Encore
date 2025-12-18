@@ -1,0 +1,179 @@
+// Supabase Edge Function to handle subscription grace/expiry transitions
+// Should be called via cron job (hourly or daily)
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    // Get Supabase client with service role key (bypasses RLS)
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error("Missing Supabase environment variables");
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    // Get all subscriptions that need transitions
+    const { data: subscriptions, error: fetchError } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .in("status", ["active", "grace", "pending_payment"]);
+
+    if (fetchError) {
+      throw new Error(`Failed to fetch subscriptions: ${fetchError.message}`);
+    }
+
+    if (!subscriptions || subscriptions.length === 0) {
+      return new Response(
+        JSON.stringify({ message: "No subscriptions to process", processed: 0 }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        }
+      );
+    }
+
+    let processed = 0;
+    let activated = 0;
+    let movedToGrace = 0;
+    let expired = 0;
+
+    for (const sub of subscriptions) {
+      const status = (sub.status as string).toLowerCase();
+      const expiresAt = new Date(sub.expires_at as string);
+      const startedAt = sub.started_at ? new Date(sub.started_at as string) : null;
+      const graceUntil = sub.grace_until ? new Date(sub.grace_until as string) : null;
+      const paymentStatus = sub.payment_status as string | null;
+
+      // 1. Activate pending_payment if payment completed and start date reached
+      if (
+        status === "pending_payment" &&
+        paymentStatus === "completed" &&
+        startedAt &&
+        now >= startedAt
+      ) {
+        // Get plan to calculate expiry
+        const { data: plan } = await supabase
+          .from("subscription_plans")
+          .select("duration_months")
+          .eq("id", sub.plan_id)
+          .single();
+
+        if (plan) {
+          const durationMonths = plan.duration_months as number;
+          // Calculate expiry: add duration months to started_at
+          const newExpires = new Date(startedAt);
+          newExpires.setMonth(newExpires.getMonth() + durationMonths);
+          const newGrace = new Date(newExpires);
+          newGrace.setDate(newGrace.getDate() + 7);
+
+          await supabase
+            .from("subscriptions")
+            .update({
+              status: "active",
+              started_at: startedAt.toISOString(),
+              expires_at: newExpires.toISOString(),
+              grace_until: newGrace.toISOString(),
+              updated_at: nowIso,
+            })
+            .eq("id", sub.id);
+
+          activated++;
+          processed++;
+        }
+        continue;
+      }
+
+      // 2. Move active to grace if past expiry
+      if (status === "active" && now > expiresAt) {
+        const newGraceUntil = graceUntil || new Date(expiresAt);
+        newGraceUntil.setDate(newGraceUntil.getDate() + 7);
+
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: "grace",
+            grace_until: newGraceUntil.toISOString(),
+            updated_at: nowIso,
+          })
+          .eq("id", sub.id);
+
+        // Send grace email (if not sent)
+        if (!sub.grace_email_sent) {
+          // TODO: Send email notification
+          // For now, just mark as sent
+          await supabase
+            .from("subscriptions")
+            .update({
+              grace_email_sent: true,
+              updated_at: nowIso,
+            })
+            .eq("id", sub.id);
+        }
+
+        movedToGrace++;
+        processed++;
+        continue;
+      }
+
+      // 3. Move grace to expired if past grace_until
+      if (status === "grace" && graceUntil && now > graceUntil) {
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: "expired",
+            updated_at: nowIso,
+          })
+          .eq("id", sub.id);
+
+        expired++;
+        processed++;
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        message: "Subscription transitions processed",
+        processed,
+        activated,
+        movedToGrace,
+        expired,
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      }
+    );
+  } catch (error) {
+    console.error("Error processing subscription transitions:", error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      }
+    );
+  }
+});

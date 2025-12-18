@@ -16,12 +16,26 @@ class AdminCommunityLinksPage extends StatefulWidget {
 class _AdminCommunityLinksPageState extends State<AdminCommunityLinksPage> {
   final _repo = CommunityLinksRepositorySupabase();
   bool _isLoading = true;
+  bool _isAdmin = false;
   List<CommunityLink> _links = [];
 
   @override
   void initState() {
     super.initState();
-    _loadLinks();
+    _checkAdminAndLoad();
+  }
+
+  Future<void> _checkAdminAndLoad() async {
+    final isAdmin = await AdminHelper.isAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+        _isLoading = false;
+      });
+      if (_isAdmin) {
+        _loadLinks();
+      }
+    }
   }
 
   Future<void> _loadLinks() async {
@@ -417,7 +431,13 @@ class _AdminCommunityLinksPageState extends State<AdminCommunityLinksPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!AdminHelper.isAdmin()) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_isAdmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('Akses Ditolak')),
         body: const Center(child: Text('Hanya admin boleh akses halaman ini.')),

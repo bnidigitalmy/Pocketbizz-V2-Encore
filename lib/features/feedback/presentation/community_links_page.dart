@@ -81,19 +81,26 @@ class _CommunityLinksPageState extends State<CommunityLinksPage> {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
-          if (AdminHelper.isAdmin())
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AdminCommunityLinksPage(),
-                  ),
-                ).then((_) => _loadLinks());
-              },
-              tooltip: 'Urus Pautan',
-            ),
+          FutureBuilder<bool>(
+            future: AdminHelper.isAdmin(),
+            builder: (context, snapshot) {
+              if (snapshot.data == true) {
+                return IconButton(
+                  icon: const Icon(Icons.settings),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AdminCommunityLinksPage(),
+                      ),
+                    ).then((_) => _loadLinks());
+                  },
+                  tooltip: 'Urus Pautan',
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadLinks,
