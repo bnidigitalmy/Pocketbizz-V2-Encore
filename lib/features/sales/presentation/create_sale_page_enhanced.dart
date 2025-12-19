@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../../data/repositories/sales_repository_supabase.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/repositories/production_repository_supabase.dart';
@@ -1273,4 +1273,3 @@ class _CreateSalePageEnhancedState extends State<CreateSalePageEnhanced> {
     );
   }
 }
-

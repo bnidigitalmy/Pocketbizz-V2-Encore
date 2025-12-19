@@ -445,25 +445,6 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final quantity = double.tryParse(quantityController.text) ?? 0.0;
-          final selectedUnit = unitController.text.trim();
-          final isAvailable = stock.currentQuantity > 0;
-          
-          // Calculate converted quantity for validation
-          double convertedQuantity = quantity;
-          if (selectedUnit.toLowerCase() != stock.unit.toLowerCase() &&
-              UnitConversion.canConvert(selectedUnit, stock.unit)) {
-            try {
-              convertedQuantity = UnitConversion.convert(
-                quantity: quantity,
-                fromUnit: selectedUnit,
-                toUnit: stock.unit,
-              );
-            } catch (e) {
-              convertedQuantity = quantity;
-            }
-          }
-
           return AlertDialog(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
@@ -485,93 +466,20 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Cost Info
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.attach_money, color: Colors.blue, size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Kos: RM${stock.costPerUnit.toStringAsFixed(4)}/${stock.unit}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Stock Info
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isAvailable ? Colors.green[50] : Colors.red[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isAvailable ? Colors.green[300]! : Colors.red[300]!,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          isAvailable ? Icons.check_circle : Icons.warning,
-                          color: isAvailable ? Colors.green : Colors.red,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Stok Tersedia: ${stock.currentQuantity.toStringAsFixed(1)} ${stock.unit}',
-                            style: TextStyle(
-                              color: isAvailable ? Colors.green[700] : Colors.red[700],
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Quantity Input
-                  TextField(
+                  TextFormField(
                     controller: quantityController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Kuantiti',
-                      border: const OutlineInputBorder(),
-                      prefixIcon: const Icon(Icons.numbers),
-                      helperText: isAvailable
-                          ? 'Maksimum: ${stock.currentQuantity.toStringAsFixed(1)} ${stock.unit}'
-                          : 'Tiada stok tersedia',
-                      errorText: () {
-                        if (quantity <= 0) {
-                          return 'Kuantiti mesti lebih daripada 0';
-                        }
-                        if (isAvailable && convertedQuantity > stock.currentQuantity) {
-                          return 'Kuantiti melebihi stok tersedia';
-                        }
-                        return null;
-                      }(),
+                      border: OutlineInputBorder(),
                     ),
-                    onChanged: (value) => setDialogState(() {}),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                   const SizedBox(height: 16),
-
-                  // Unit Input
                   DropdownButtonFormField<String>(
-                    value: selectedUnit,
+                    value: unitController.text.trim(),
                     decoration: const InputDecoration(
                       labelText: 'Unit Resepi',
                       border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.straighten),
                       helperText: 'Unit mesti serasi dengan unit stok bahan.',
                     ),
                     items: compatibleUnits
@@ -589,6 +497,29 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
                       });
                     },
                   ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info, color: Colors.blue[700], size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Stok tersedia: ${stock.currentQuantity.toStringAsFixed(1)} ${stock.unit}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -599,10 +530,8 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
               ),
               ElevatedButton(
                 onPressed: () {
-                  final qty = double.tryParse(quantityController.text) ?? 0.0;
-                  final unit = unitController.text.trim();
-
-                  if (qty <= 0) {
+                  final quantity = double.tryParse(quantityController.text) ?? 0.0;
+                  if (quantity <= 0) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Kuantiti mesti lebih daripada 0'),
@@ -611,50 +540,9 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
                     );
                     return;
                   }
-
-                  // Validate unit compatibility
-                  if (unit.toLowerCase() != stock.unit.toLowerCase() &&
-                      !UnitConversion.canConvert(unit, stock.unit)) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Unit tidak serasi. Resepi: "$unit", Stok: "${stock.unit}". '
-                          'Sila pilih unit yang serasi.',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
-                  // Calculate converted quantity and validate stock
-                  double convertedQty = qty;
-                  if (unit.toLowerCase() != stock.unit.toLowerCase()) {
-                    convertedQty = UnitConversion.convert(
-                      quantity: qty,
-                      fromUnit: unit,
-                      toUnit: stock.unit,
-                    );
-                  }
-
-                  if (isAvailable && convertedQty > stock.currentQuantity) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Kuantiti melebihi stok tersedia (${stock.currentQuantity.toStringAsFixed(1)} ${stock.unit})',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
                   Navigator.pop(context);
-                  _addIngredientToRecipe(stock, qty, unit);
+                  _addIngredientToRecipe(stock, quantity, unitController.text.trim());
                 },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isAvailable ? null : Colors.grey,
-                ),
                 child: const Text('Tambah'),
               ),
             ],

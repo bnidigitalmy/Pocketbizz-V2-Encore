@@ -768,4 +768,3 @@ class _SalesPageState extends State<SalesPage> {
     );
   }
 }
-

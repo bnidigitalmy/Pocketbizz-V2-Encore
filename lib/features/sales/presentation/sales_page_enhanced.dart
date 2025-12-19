@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/utils/date_time_helper.dart';
 import '../../../data/repositories/sales_repository_supabase.dart';
@@ -283,7 +283,7 @@ class _SalesPageEnhancedState extends State<SalesPageEnhanced> {
             await _loadTodaySummary();
           }
         },
-        backgroundColor: AppColors.primary,
+        backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Jualan Baru'),
