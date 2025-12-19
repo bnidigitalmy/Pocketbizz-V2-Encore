@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
-import 'package:url_launcher/url_launcher.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/date_time_helper.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/utils/admin_helper.dart';
+import '../../../core/utils/pdf_generator.dart';
+import '../../../core/services/document_storage_service.dart';
+import '../../../data/repositories/business_profile_repository_supabase.dart';
 import '../data/models/subscription.dart';
 import '../data/models/subscription_plan.dart';
 import '../data/models/subscription_payment.dart';
@@ -1689,11 +1696,52 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ],
           ],
         ),
-        trailing: payment.receiptUrl != null
-            ? IconButton(
+        trailing: payment.isCompleted
+            ? PopupMenuButton<String>(
                 icon: const Icon(Icons.receipt, color: AppColors.primary),
-                tooltip: 'Lihat Resit',
-                onPressed: () => _openReceipt(payment.receiptUrl!),
+                tooltip: 'Resit',
+                onSelected: (value) async {
+                  if (value == 'generate') {
+                    // Receipt not yet generated, generate on demand
+                    await _generateReceiptOnDemand(payment);
+                  } else if (value == 'view') {
+                    // Receipt already exists - view it
+                    if (payment.receiptUrl != null) {
+                      _openReceipt(payment.receiptUrl!);
+                    }
+                  } else if (value == 'download') {
+                    // Receipt already exists - download it
+                    if (payment.receiptUrl != null) {
+                      _downloadReceipt(payment.receiptUrl!, payment.paymentReference ?? 'receipt');
+                    }
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: payment.receiptUrl != null ? 'view' : 'generate',
+                    child: Row(
+                      children: [
+                        Icon(
+                          payment.receiptUrl != null ? Icons.visibility : Icons.receipt_long,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(payment.receiptUrl != null ? 'Lihat Resit' : 'Jana Resit'),
+                      ],
+                    ),
+                  ),
+                  if (payment.receiptUrl != null)
+                    const PopupMenuItem(
+                      value: 'download',
+                      child: Row(
+                        children: [
+                          Icon(Icons.download, size: 20),
+                          SizedBox(width: 8),
+                          Text('Muat Turun PDF'),
+                        ],
+                      ),
+                    ),
+                ],
               )
             : null,
         isThreeLine: payment.failureReason != null || payment.paymentMethod != null,
@@ -1717,6 +1765,247 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _downloadReceipt(String receiptUrl, String paymentReference) async {
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                ),
+                SizedBox(width: 12),
+                Text('Memuat turun resit...'),
+              ],
+            ),
+            duration: Duration(seconds: 30),
+          ),
+        );
+      }
+
+      Uint8List pdfBytes;
+      
+      // Try to extract storage path from URL and use Supabase Storage API
+      // Format: https://[project].supabase.co/storage/v1/object/public/user-documents/[path]
+      try {
+        final uri = Uri.parse(receiptUrl);
+        final pathSegments = uri.pathSegments;
+        
+        // Find 'user-documents' in path and extract everything after it
+        final bucketIndex = pathSegments.indexOf('user-documents');
+        if (bucketIndex != -1 && bucketIndex < pathSegments.length - 1) {
+          final storagePath = pathSegments.sublist(bucketIndex + 1).join('/');
+          
+          // Use Supabase Storage API to download (handles authentication)
+          pdfBytes = await supabase.storage
+              .from('user-documents')
+              .download(storagePath);
+        } else {
+          // Fallback: try direct HTTP GET with auth headers
+          final accessToken = supabase.auth.currentSession?.accessToken;
+          if (accessToken != null) {
+            final response = await http.get(
+              Uri.parse(receiptUrl),
+              headers: {
+                'Authorization': 'Bearer $accessToken',
+              },
+            );
+            if (response.statusCode != 200) {
+              throw Exception('Failed to download receipt: ${response.statusCode}');
+            }
+            pdfBytes = response.bodyBytes;
+          } else {
+            // Last resort: try direct HTTP GET
+            final response = await http.get(Uri.parse(receiptUrl));
+            if (response.statusCode != 200) {
+              throw Exception('Failed to download receipt: ${response.statusCode}');
+            }
+            pdfBytes = response.bodyBytes;
+          }
+        }
+      } catch (e) {
+        // Fallback: try direct HTTP GET
+        final response = await http.get(Uri.parse(receiptUrl));
+        if (response.statusCode != 200) {
+          throw Exception('Failed to download receipt: ${response.statusCode}');
+        }
+        pdfBytes = response.bodyBytes;
+      }
+
+      final fileName = 'resit_subscription_${paymentReference}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf';
+
+      if (kIsWeb) {
+        // Web: trigger download
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download', fileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        // Mobile: open in browser (user can download from there)
+        final uri = Uri.parse(receiptUrl);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(kIsWeb ? '✅ Resit berjaya dimuat turun!' : '✅ Resit dibuka dalam browser'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Gagal muat turun resit: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _generateReceiptOnDemand(SubscriptionPayment payment) async {
+    try {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                ),
+                SizedBox(width: 12),
+                Text('Menjana resit...'),
+              ],
+            ),
+            duration: Duration(seconds: 30),
+          ),
+        );
+      }
+
+      // Fetch subscription and plan data
+      final subscription = await _subscriptionService.getCurrentSubscription();
+      if (subscription == null) {
+        throw Exception('Subscription not found');
+      }
+
+      // Get plan details
+      final plans = await _subscriptionService.getAvailablePlans();
+      final plan = plans.firstWhere(
+        (p) => p.id == subscription.planId,
+        orElse: () => plans.first,
+      );
+
+      // Get user info
+      final user = supabase.auth.currentUser;
+      final userEmail = user?.email;
+      final userName = user?.userMetadata?['full_name'] as String?;
+
+      // Generate PDF receipt (uses fixed PocketBizz/BNI Digital Enterprise info in header)
+      final pdfBytes = await PDFGenerator.generateSubscriptionReceipt(
+        paymentReference: payment.paymentReference ?? payment.id,
+        planName: subscription.planName,
+        durationMonths: subscription.durationMonths,
+        amount: payment.amount,
+        paidAt: payment.paidAt ?? payment.createdAt,
+        paymentGateway: payment.paymentGateway,
+        gatewayTransactionId: payment.gatewayTransactionId,
+        userEmail: userEmail,
+        userName: userName,
+        isEarlyAdopter: subscription.isEarlyAdopter,
+      );
+
+      // Upload to Supabase Storage
+      final fileName = 'subscription_receipt_${payment.paymentReference ?? payment.id}_${DateFormat('yyyyMMdd').format(payment.paidAt ?? payment.createdAt)}.pdf';
+      final uploadResult = await DocumentStorageService.uploadDocument(
+        pdfBytes: pdfBytes,
+        fileName: fileName,
+        documentType: 'subscription_receipt',
+        relatedEntityType: 'subscription',
+        relatedEntityId: payment.subscriptionId,
+      );
+
+      // Get receipt URL from upload result
+      final receiptUrl = uploadResult['url'] as String?;
+      if (receiptUrl == null) {
+        throw Exception('Failed to get receipt URL after upload');
+      }
+
+      // Update payment record with receipt URL
+      await supabase
+          .from('subscription_payments')
+          .update({
+            'receipt_url': receiptUrl,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', payment.id);
+
+      // Reload payment history to get updated receipt URL
+      await _loadData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        // Show success message with option to view/download
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('✅ Resit berjaya dijana!'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: kIsWeb ? 'Muat Turun' : 'Lihat',
+              textColor: Colors.white,
+              onPressed: () {
+                if (kIsWeb) {
+                  _downloadReceipt(receiptUrl, payment.paymentReference ?? 'receipt');
+                } else {
+                  _openReceipt(receiptUrl);
+                }
+              },
+            ),
+          ),
+        );
+
+        // Auto-action: Download for web, open for mobile
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (kIsWeb) {
+            // Web: Auto-download receipt
+            _downloadReceipt(receiptUrl, payment.paymentReference ?? 'receipt');
+          } else {
+            // Mobile: Open in browser
+            _openReceipt(receiptUrl);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Gagal jana resit: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     }

@@ -982,16 +982,12 @@ class SubscriptionRepositorySupabase {
     required String paymentId,
   }) async {
     try {
-      // Get business profile for receipt
-      final businessProfileRepo = BusinessProfileRepository();
-      final businessProfile = await businessProfileRepo.getBusinessProfile();
-
       // Get user info
       final user = _supabase.auth.currentUser;
       final userEmail = user?.email;
       final userName = user?.userMetadata?['full_name'] as String?;
 
-      // Generate PDF receipt
+      // Generate PDF receipt (uses fixed PocketBizz/BNI Digital Enterprise info in header)
       final pdfBytes = await PDFGenerator.generateSubscriptionReceipt(
         paymentReference: paymentReference,
         planName: subscription.planName,
@@ -1000,9 +996,6 @@ class SubscriptionRepositorySupabase {
         paidAt: paidAt,
         paymentGateway: subscription.paymentGateway ?? 'bcl_my',
         gatewayTransactionId: gatewayTransactionId,
-        businessName: businessProfile?.businessName,
-        businessAddress: businessProfile?.address,
-        businessPhone: businessProfile?.phone,
         userEmail: userEmail,
         userName: userName,
         isEarlyAdopter: subscription.isEarlyAdopter,

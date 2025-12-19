@@ -71,7 +71,7 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
   Future<void> _handlePreview() async {
     final selections = _buildSelections();
     if (selections.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _getRootScaffoldMessenger()?.showSnackBar(
         const SnackBar(content: Text('Sila pilih sekurang-kurangnya 1 produk dan kuantiti batch.')),
       );
       return;
@@ -88,18 +88,37 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        _getRootScaffoldMessenger()?.showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
   }
 
+  // Helper method to get root ScaffoldMessenger for showing snackbars above dialogs
+  ScaffoldMessengerState? _getRootScaffoldMessenger() {
+    try {
+      // Get the root navigator and find ScaffoldMessenger in its overlay
+      final rootNavigator = Navigator.of(context, rootNavigator: true);
+      final rootOverlay = rootNavigator.overlay;
+      if (rootOverlay != null) {
+        final rootContext = rootOverlay.context;
+        final scaffoldMessenger = ScaffoldMessenger.maybeOf(rootContext);
+        if (scaffoldMessenger != null) return scaffoldMessenger;
+      }
+      // Try finding ScaffoldMessenger by traversing up the widget tree
+      return context.findAncestorStateOfType<ScaffoldMessengerState>();
+    } catch (_) {
+      // Fallback to regular context if root navigator not available
+    }
+    return ScaffoldMessenger.maybeOf(context);
+  }
+
   Future<void> _addShortagesToShoppingList() async {
     if (_plan == null) return;
     final shortages = _plan!.materials.where((m) => !m.isSufficient).toList();
     if (shortages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _getRootScaffoldMessenger()?.showSnackBar(
         const SnackBar(content: Text('✅ Semua bahan mencukupi. Tiada yang perlu dibeli.'), backgroundColor: AppColors.success),
       );
       return;
@@ -127,7 +146,7 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
 
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        _getRootScaffoldMessenger()?.showSnackBar(
           SnackBar(
             content: Text(fail > 0 ? '✅ $success item ditambah. ❌ $fail gagal.' : '✅ $success item ditambah ke Senarai Belian.'),
             backgroundColor: fail > 0 ? Colors.orange : AppColors.success,
@@ -137,7 +156,7 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        _getRootScaffoldMessenger()?.showSnackBar(
           SnackBar(content: Text('Gagal tambah ke senarai belian: $e'), backgroundColor: Colors.red),
         );
       }
@@ -151,7 +170,7 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
     final skipped = _plan!.products.where((p) => !p.canProduceNow || !p.hasActiveRecipe).toList();
 
     if (producible.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _getRootScaffoldMessenger()?.showSnackBar(
         const SnackBar(
           content: Text('❌ Tiada produk yang boleh diproduce sekarang (stok tak cukup / tiada resipi).'),
           backgroundColor: Colors.red,
@@ -237,7 +256,7 @@ class _BulkProductionPlanningDialogState extends State<BulkProductionPlanningDia
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        _getRootScaffoldMessenger()?.showSnackBar(
           SnackBar(content: Text('Gagal bulk produce: $e'), backgroundColor: Colors.red),
         );
       }

@@ -553,34 +553,41 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Verify amount for prorated payments
-      // BCL.my form may show fixed amount, but we use amount from database
+      // Get amount from BCL.my webhook (actual amount paid)
       const webhookAmount = parseFloat(payloadData.amount?.toString() ?? "0");
       const expectedAmount = payment.amount as number;
       const amountDiff = Math.abs(webhookAmount - expectedAmount);
       
-      // For prorated payments, BCL.my may charge fixed form amount
-      // We accept if difference is small (< RM 50) or if it's exact match
-      const isProratedPayment = amountDiff > 0.01 && amountDiff < 50;
-      
-      if (isProratedPayment) {
-        console.log(`[${new Date().toISOString()}] Prorated payment detected. Webhook amount: ${webhookAmount}, Expected: ${expectedAmount}`);
-        console.log(`[${new Date().toISOString()}] Using expected amount from database: ${expectedAmount}`);
+      // For receipt accuracy: Use actual amount from BCL.my webhook if available and valid
+      // For prorated payments, BCL.my may charge fixed form amount, but we should use actual amount paid
+      // Only use expected amount if webhook amount is invalid (0 or negative)
+      let finalAmount = expectedAmount;
+      if (webhookAmount > 0 && webhookAmount <= expectedAmount * 1.5) {
+        // Accept webhook amount if it's reasonable (within 50% of expected, to handle prorated payments)
+        finalAmount = webhookAmount;
+        if (amountDiff > 0.01) {
+          console.log(`[${new Date().toISOString()}] Using BCL.my webhook amount: ${webhookAmount} (expected: ${expectedAmount}, diff: ${amountDiff.toFixed(2)})`);
+        }
+      } else if (webhookAmount > 0) {
+        console.warn(`[${new Date().toISOString()}] Webhook amount ${webhookAmount} seems invalid, using expected amount ${expectedAmount}`);
       }
 
-      // Update payment status (use expected amount from database for prorated payments)
+      // Update payment status with actual data from BCL.my webhook
+      // This ensures receipt shows accurate data matching BCL.my records
       const { error: paymentUpdateError } = await supabase
         .from("subscription_payments")
         .update({
           status: "completed",
-          paid_at: nowIso,
-          gateway_transaction_id: gatewayTransactionId,
-          failure_reason: isProratedPayment 
-            ? `Prorated payment: BCL form showed ${webhookAmount}, using expected ${expectedAmount}`
+          paid_at: nowIso, // Payment completion time (webhook received time)
+          gateway_transaction_id: gatewayTransactionId, // Transaction ID from BCL.my
+          payment_reference: orderNumber, // BCL.my order number (ensure it's updated)
+          failure_reason: amountDiff > 0.01 && webhookAmount > 0
+            ? `Amount difference: BCL.my charged ${webhookAmount}, expected ${expectedAmount} (diff: ${amountDiff.toFixed(2)})`
             : null,
           updated_at: nowIso,
-          // Keep original amount from database (prorated amount)
-          amount: expectedAmount,
+          // Use actual amount from BCL.my webhook for receipt accuracy
+          // This ensures receipt matches BCL.my payment records
+          amount: finalAmount,
         })
         .eq("id", payment.id);
 

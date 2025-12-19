@@ -492,6 +492,7 @@ class PDFGenerator {
   }
 
   /// Generate Subscription Payment Receipt PDF
+  /// Note: This receipt is from PocketBizz to user, so header uses PocketBizz/BNI Digital Enterprise info
   static Future<Uint8List> generateSubscriptionReceipt({
     required String paymentReference,
     required String planName,
@@ -500,14 +501,19 @@ class PDFGenerator {
     required DateTime paidAt,
     required String paymentGateway,
     String? gatewayTransactionId,
-    String? businessName,
-    String? businessAddress,
-    String? businessPhone,
     String? userEmail,
     String? userName,
     bool isEarlyAdopter = false,
   }) async {
     final pdf = pw.Document();
+
+    // Fixed business info for PocketBizz (vendor) - receipt is between PocketBizz and user
+    const pocketbizzBusinessName = 'PocketBizz';
+    const pocketbizzCompanyName = 'BNI Digital Enterprise';
+    const pocketbizzRegistrationNumber = 'TR0323644-V';
+    const pocketbizzAddress = ''; // Add address if available
+    const pocketbizzPhone = ''; // Add phone if available
+    const pocketbizzEmail = 'support@pocketbizz.com'; // Add support email if available
 
     pdf.addPage(
       pw.MultiPage(
@@ -519,9 +525,11 @@ class PDFGenerator {
               title: 'RESIT PEMBAYARAN LANGGANAN',
               documentNumber: paymentReference,
               date: paidAt,
-              businessName: businessName ?? 'PocketBizz',
-              businessAddress: businessAddress,
-              businessPhone: businessPhone,
+              businessName: pocketbizzBusinessName,
+              businessAddress: pocketbizzAddress.isNotEmpty 
+                  ? '$pocketbizzAddress\n$pocketbizzCompanyName ($pocketbizzRegistrationNumber)'
+                  : '$pocketbizzCompanyName ($pocketbizzRegistrationNumber)',
+              businessPhone: pocketbizzPhone.isNotEmpty ? pocketbizzPhone : null,
             ),
             pw.SizedBox(height: 20),
             _buildSubscriptionInfo(
