@@ -61,6 +61,26 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
   int _suggestedMarginPercent = 30;
   double _suggestedSellingPrice = 0.0;
 
+  // Common emojis for product categories
+  static const List<String> _categoryEmojis = [
+    '🍰', '🥧', '🧁', '🍪', '🍩', '🍮',
+    '🍞', '🥐', '🥖', '🥨', '🥯', '🥞',
+    '🍕', '🌮', '🌯', '🥙', '🍔', '🍟',
+    '🍗', '🥩', '🥓', '🍖', '🍤', '🦐',
+    '🍜', '🍝', '🍲', '🍱', '🍛', '🍚',
+    '🥗', '🥙', '🥒', '🥕', '🌽', '🥑',
+    '🍎', '🍊', '🍋', '🍌', '🍉', '🍇',
+    '🍓', '🍈', '🍒', '🍑', '🥭', '🍍',
+    '🥥', '🥝', '🍅', '🍆', '🥔', '🥕',
+    '🥛', '🍼', '☕', '🍵', '🥤', '🧃',
+    '🧉', '🧊', '🍺', '🍻', '🥂', '🍷',
+    '🍸', '🍹', '🧋', '🍬', '🍭', '🍫',
+    '🍿', '🌰', '🥜', '🧀', '🥚', '🍳',
+    '🧇', '🌭', '🥪', '🥘', '🥫', '🍣',
+    '🥟', '🥠', '🥡', '🍢', '🍡', '🍧',
+    '🍨', '🍦', '🎂', '📦', '🛍️', '🎁',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -445,11 +465,39 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
                   
                   const SizedBox(height: 16),
                   
-                  _buildTextField(
+                  // Category Selection Button
+                  OutlinedButton.icon(
+                    onPressed: _showCategorySelector,
+                    icon: Icon(
+                      _categoryController.text.isNotEmpty ? Icons.check_circle : Icons.category_outlined,
+                      color: _categoryController.text.isNotEmpty ? AppColors.success : AppColors.primary,
+                    ),
+                    label: Text(
+                      _categoryController.text.isNotEmpty ? _categoryController.text : 'Pilih Kategori',
+                      style: TextStyle(
+                        color: _categoryController.text.isNotEmpty ? AppColors.success : AppColors.primary,
+                        fontWeight: _categoryController.text.isNotEmpty ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      side: BorderSide(
+                        color: _categoryController.text.isNotEmpty ? AppColors.success : AppColors.primary,
+                        width: 2,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  // Hidden TextField for validation
+                  TextFormField(
                     controller: _categoryController,
-                    label: 'Kategori',
-                    hint: 'cth: Kuih, Kek, Minuman',
-                    icon: Icons.category,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    style: const TextStyle(height: 0, fontSize: 0),
                     validator: (v) => v?.isEmpty ?? true ? 'Kategori diperlukan' : null,
                   ),
                   
@@ -638,6 +686,506 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
         ),
       ),
       validator: validator,
+    );
+  }
+
+  void _showCategorySelector() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.category,
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Pilih Kategori',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // Category List
+              Expanded(
+                child: _categories.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.category_outlined,
+                              size: 64,
+                              color: Colors.grey[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Tiada kategori tersedia',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _categories.length,
+                        itemBuilder: (context, index) {
+                          final category = _categories[index];
+                          final isSelected = _categoryController.text == category.name;
+
+                          return Card(
+                            elevation: 2,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : Colors.grey[200]!,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _categoryController.text = category.name;
+                                });
+                                Navigator.pop(context);
+                              },
+                              borderRadius: BorderRadius.circular(16),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Row(
+                                  children: [
+                                    // Category Icon
+                                    Container(
+                                      width: 60,
+                                      height: 60,
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? AppColors.primary.withOpacity(0.1)
+                                            : Colors.grey[100],
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? AppColors.primary
+                                              : Colors.grey[300]!,
+                                          width: isSelected ? 2 : 1,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: category.icon != null && category.icon!.isNotEmpty
+                                            ? Text(
+                                                category.icon!,
+                                                style: const TextStyle(fontSize: 28),
+                                              )
+                                            : Icon(
+                                                Icons.category,
+                                                color: isSelected
+                                                    ? AppColors.primary
+                                                    : Colors.grey[600],
+                                                size: 28,
+                                              ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    // Category Info
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            category.name,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                              color: isSelected
+                                                  ? AppColors.primary
+                                                  : Colors.black,
+                                            ),
+                                          ),
+                                          if (category.description != null && category.description!.isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              category.description!,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[600],
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    // Selected Icon
+                                    if (isSelected)
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.check,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              // Add New Category Button
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border(
+                    top: BorderSide(color: Colors.grey[200]!, width: 1),
+                  ),
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _showCreateCategoryDialog();
+                    },
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: const Text('Tambah Kategori Baru'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: BorderSide(color: AppColors.primary, width: 2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCreateCategoryDialog() {
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    String? selectedIcon;
+    String? selectedColor;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.8,
+                maxWidth: 500,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.add_circle, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Tambah Kategori Baru',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  // Content
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Kategori *',
+                      hintText: 'cth: Kuih, Kek, Minuman',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.label),
+                    ),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: descController,
+                    decoration: const InputDecoration(
+                      labelText: 'Penerangan (Pilihan)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.description),
+                    ),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  // Icon Selection with Emoji Picker
+                  Text(
+                    'Icon (Emoji) - Pilihan',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Selected Emoji Display
+                  if (selectedIcon != null && selectedIcon!.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            selectedIcon!,
+                            style: const TextStyle(fontSize: 32),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Icon dipilih',
+                              style: TextStyle(
+                                color: Colors.blue[700],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.clear, size: 20),
+                            color: Colors.blue[700],
+                            onPressed: () {
+                              setDialogState(() {
+                                selectedIcon = null;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  // Emoji Grid
+                  Container(
+                    constraints: const BoxConstraints(
+                      maxHeight: 200,
+                      minHeight: 200,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 6,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 1.0,
+                      ),
+                      itemCount: _categoryEmojis.length,
+                      itemBuilder: (context, index) {
+                        final emoji = _categoryEmojis[index];
+                        final isSelected = selectedIcon == emoji;
+                        
+                        return InkWell(
+                          onTap: () {
+                            setDialogState(() {
+                              selectedIcon = emoji;
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.primary.withOpacity(0.1)
+                                  : Colors.grey[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : Colors.grey[300]!,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                emoji,
+                                style: const TextStyle(fontSize: 24),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Actions
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      border: Border(
+                        top: BorderSide(color: Colors.grey[200]!, width: 1),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Batal'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () async {
+                            if (nameController.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Nama kategori diperlukan'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                              return;
+                            }
+
+                            try {
+                              final newCategory = await _categoriesRepo.create(
+                                nameController.text.trim(),
+                                description: descController.text.trim().isEmpty
+                                    ? null
+                                    : descController.text.trim(),
+                                icon: selectedIcon,
+                                color: selectedColor,
+                              );
+
+                              // Reload categories
+                              final categories = await _categoriesRepo.getAll(limit: 100);
+                              setState(() {
+                                _categories = categories;
+                                _categoryController.text = newCategory.name;
+                              });
+
+                              Navigator.pop(context);
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('✅ Kategori "${newCategory.name}" ditambah'),
+                                  backgroundColor: AppColors.success,
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Ralat: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Tambah'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
