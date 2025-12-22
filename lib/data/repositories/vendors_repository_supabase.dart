@@ -45,6 +45,7 @@ class VendorsRepositorySupabase {
   /// Create vendor
   Future<Vendor> createVendor({
     required String name,
+    String? vendorNumber,
     String? email,
     String? phone,
     String? address,
@@ -61,6 +62,7 @@ class VendorsRepositorySupabase {
         .insert({
       'business_owner_id': userId,
       'name': name,
+      'vendor_number': vendorNumber,
       'email': email,
       'phone': phone,
       'address': address,

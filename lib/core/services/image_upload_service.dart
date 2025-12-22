@@ -166,5 +166,81 @@ class ImageUploadService {
     // Upload new image
     return await uploadProductImage(newImageFile, productId);
   }
+
+  /// Upload QR Code image to Supabase Storage
+  /// Returns the public URL of the uploaded QR code
+  Future<String> uploadQrCodeImage(XFile imageFile, String userId) async {
+    try {
+      // Generate unique file name
+      final String fileName = 'qr-code-${userId}-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final String filePath = 'business-assets/$fileName';
+
+      // Handle platform-specific file upload
+      if (kIsWeb) {
+        // For web: read bytes from XFile
+        final Uint8List fileBytes = await imageFile.readAsBytes();
+        
+        // Check authentication
+        final accessToken = supabase.auth.currentSession?.accessToken;
+        if (accessToken == null || accessToken.isEmpty) {
+          throw Exception('User not authenticated. Please login first.');
+        }
+        
+        // Get Supabase URL from environment
+        String? supabaseUrl = dotenv.env['SUPABASE_URL'];
+        String? supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
+        
+        // Fallback for web production builds
+        if (kIsWeb && (supabaseUrl == null || supabaseAnonKey == null)) {
+          supabaseUrl = supabaseUrl ?? 'https://gxllowlurizrkvpdircw.supabase.co';
+          supabaseAnonKey = supabaseAnonKey ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4bGxvd2x1cml6cmt2cGRpcmN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTAyMDksImV4cCI6MjA3OTc4NjIwOX0.Avft6LyKGwmU8JH3hXmO7ukNBlgG1XngjBX-prObycs';
+        }
+        
+        if (supabaseUrl == null || supabaseAnonKey == null) {
+          throw Exception('SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env file');
+        }
+        
+        final encodedPath = Uri.encodeComponent(filePath);
+        // Use product-images bucket for business assets (QR codes)
+        final storageUrl = '$supabaseUrl/storage/v1/object/product-images/$encodedPath';
+        
+        // Upload using HTTP PUT
+        final response = await http.put(
+          Uri.parse(storageUrl),
+          headers: {
+            'Authorization': 'Bearer $accessToken',
+            'Content-Type': 'image/jpeg',
+            'apikey': supabaseAnonKey,
+            'x-upsert': 'false',
+          },
+          body: fileBytes,
+        );
+        
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          throw Exception('Upload failed: ${response.statusCode} - ${response.body}');
+        }
+      } else {
+        // For mobile: use File from dart:io
+        final File file = File(imageFile.path);
+        
+        // Upload to Supabase Storage
+        await supabase.storage
+            .from(_bucketName)
+            .upload(
+              filePath,
+              file,
+            );
+      }
+
+      // Get public URL
+      final String publicUrl = supabase.storage
+          .from(_bucketName)
+          .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (e) {
+      throw Exception('Failed to upload QR code: $e');
+    }
+  }
 }
 

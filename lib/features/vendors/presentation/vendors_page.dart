@@ -36,6 +36,7 @@ class _VendorsPageState extends State<VendorsPage> {
 
   // Form controllers
   final _nameController = TextEditingController();
+  final _vendorNumberController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -49,6 +50,7 @@ class _VendorsPageState extends State<VendorsPage> {
   @override
   void dispose() {
     _nameController.dispose();
+    _vendorNumberController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
     super.dispose();
@@ -79,6 +81,7 @@ class _VendorsPageState extends State<VendorsPage> {
 
   void _resetForm() {
     _nameController.clear();
+    _vendorNumberController.clear();
     _phoneController.clear();
     _addressController.clear();
     _formKey.currentState?.reset();
@@ -102,6 +105,7 @@ class _VendorsPageState extends State<VendorsPage> {
     try {
       await _vendorsRepo.createVendor(
         name: _nameController.text.trim(),
+        vendorNumber: _vendorNumberController.text.trim().isEmpty ? null : _vendorNumberController.text.trim(),
         phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
         address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
       );
@@ -465,6 +469,18 @@ class _VendorsPageState extends State<VendorsPage> {
                   return null;
                 },
                 textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _vendorNumberController,
+                decoration: const InputDecoration(
+                  labelText: 'Nombor Vendor (NV)',
+                  hintText: 'cth: NV001, V-001',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.numbers),
+                  helperText: 'Nombor vendor untuk invois (optional)',
+                ),
+                textCapitalization: TextCapitalization.characters,
               ),
               const SizedBox(height: 16),
               TextFormField(

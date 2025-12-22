@@ -13,6 +13,7 @@ class DeliveriesRepositorySupabase {
         .from('vendor_deliveries')
         .select('''
           *,
+          vendors!inner(vendor_number),
           vendor_delivery_items (
             *,
             products (id, name, sku)
@@ -33,9 +34,15 @@ class DeliveriesRepositorySupabase {
             };
           }).toList() ??
           [];
+      
+      // Extract vendor_number from vendors relation
+      final vendorData = deliveryJson['vendors'] as Map<String, dynamic>?;
+      final vendorNumber = vendorData?['vendor_number'] as String?;
+      
       return Delivery.fromJson({
         ...deliveryJson,
         'items': items,
+        'vendor_number': vendorNumber,
       });
     }).toList();
 
@@ -55,7 +62,8 @@ class DeliveriesRepositorySupabase {
           vendor_delivery_items (
             *,
             products (id, name, sku)
-          )
+          ),
+          vendors!inner (vendor_number)
         ''').eq('id', deliveryId).maybeSingle();
 
     if (response == null) return null;
@@ -71,10 +79,15 @@ class DeliveriesRepositorySupabase {
               };
             }).toList() ??
             [];
+    
+    // Extract vendor_number from vendors relation
+    final vendorData = deliveryJson['vendors'] as Map<String, dynamic>?;
+    final vendorNumber = vendorData?['vendor_number'] as String?;
 
     return Delivery.fromJson({
       ...deliveryJson,
       'items': items,
+      'vendor_number': vendorNumber,
     });
   }
 
@@ -87,7 +100,8 @@ class DeliveriesRepositorySupabase {
           vendor_delivery_items (
             *,
             products (id, name, sku)
-          )
+          ),
+          vendors!inner (vendor_number)
         ''')
         .eq('vendor_id', vendorId)
         .order('delivery_date', ascending: false)
@@ -107,10 +121,15 @@ class DeliveriesRepositorySupabase {
               };
             }).toList() ??
             [];
+    
+    // Extract vendor_number from vendors relation
+    final vendorData = deliveryJson['vendors'] as Map<String, dynamic>?;
+    final vendorNumber = vendorData?['vendor_number'] as String?;
 
     return Delivery.fromJson({
       ...deliveryJson,
       'items': items,
+      'vendor_number': vendorNumber,
     });
   }
 

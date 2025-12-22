@@ -1,13 +1,29 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 import '../../data/models/delivery.dart';
 import '../../data/models/business_profile.dart';
 
 /// PDF Generator for Delivery Invoices
 /// Supports 3 formats: Standard (A4), A5 Receipt, Thermal 58mm
 class DeliveryInvoicePDFGenerator {
+  /// Download image from URL and convert to PDF image
+  static Future<pw.ImageProvider?> _downloadImageFromUrl(String imageUrl) async {
+    try {
+      final response = await http.get(Uri.parse(imageUrl));
+      if (response.statusCode == 200) {
+        final imageBytes = response.bodyBytes;
+        return pw.MemoryImage(imageBytes);
+      }
+    } catch (e) {
+      // If download fails, return null (will fallback to text)
+      debugPrint('Failed to download QR code image: $e');
+    }
+    return null;
+  }
   /// Generate PDF Invoice for Delivery
   /// 
   /// [format] can be: 'standard', 'a5', or 'thermal'
@@ -556,6 +572,22 @@ class DeliveryInvoicePDFGenerator {
     
     // Thermal printer width: 58mm = ~219 points at 72 DPI
     const thermalWidth = 219.0;
+    
+    // Calculate totals
+    final totalAmount = delivery.items.fold<double>(0.0, (sum, item) {
+      final acceptedQty = item.quantity - item.rejectedQty;
+      return sum + (acceptedQty * item.unitPrice);
+    });
+
+    // Download QR code image if available (before building PDF)
+    pw.ImageProvider? qrCodeImage;
+    if (businessProfile?.paymentQrCode != null && businessProfile!.paymentQrCode!.isNotEmpty) {
+      try {
+        qrCodeImage = await _downloadImageFromUrl(businessProfile.paymentQrCode!);
+      } catch (e) {
+        debugPrint('Failed to load QR code image: $e');
+      }
+    }
 
     pdf.addPage(
       pw.Page(
@@ -564,23 +596,85 @@ class DeliveryInvoicePDFGenerator {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
-              // Header
+              // Business Header
               pw.Center(
                 child: pw.Column(
                   children: [
                     pw.Text(
-                      businessProfile?.businessName ?? 'INVOIS',
+                      businessProfile?.businessName ?? 'INVOIS PENGHANTARAN',
                       style: pw.TextStyle(
                         fontSize: 12,
                         fontWeight: pw.FontWeight.bold,
                       ),
                       textAlign: pw.TextAlign.center,
                     ),
+                    if (businessProfile?.address != null && businessProfile!.address!.isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        businessProfile.address!,
+                        style: const pw.TextStyle(fontSize: 7),
+                        textAlign: pw.TextAlign.center,
+                      ),
+                    ],
+                    if (businessProfile?.phone != null && businessProfile!.phone!.isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Tel: ${businessProfile.phone}',
+                        style: const pw.TextStyle(fontSize: 7),
+                        textAlign: pw.TextAlign.center,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(height: 4),
+              pw.Divider(),
+
+              // Invoice Title
+              pw.Center(
+                child: pw.Text(
+                  'INVOIS PENGHANTARAN',
+                  style: pw.TextStyle(
+                    fontSize: 10,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+
+              pw.SizedBox(height: 4),
+              pw.Divider(),
+
+              // Vendor Info
+              pw.Align(
+                alignment: pw.Alignment.centerLeft,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Kepada:',
+                      style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Text(
+                      delivery.vendorName,
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
+                    // Nombor Vendor - Display below Vendor Name
+                    if (delivery.vendorNumber != null && delivery.vendorNumber!.isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Nombor Vendor: ${delivery.vendorNumber}',
+                        style: const pw.TextStyle(fontSize: 7),
+                      ),
+                    ],
                     pw.SizedBox(height: 2),
                     pw.Text(
-                      delivery.invoiceNumber ?? 'N/A',
-                      style: const pw.TextStyle(fontSize: 9),
-                      textAlign: pw.TextAlign.center,
+                      'Tarikh: $deliveryDate',
+                      style: const pw.TextStyle(fontSize: 7),
+                    ),
+                    pw.Text(
+                      'No: ${delivery.invoiceNumber ?? 'N/A'}',
+                      style: const pw.TextStyle(fontSize: 7),
                     ),
                   ],
                 ),
@@ -589,17 +683,30 @@ class DeliveryInvoicePDFGenerator {
               pw.SizedBox(height: 4),
               pw.Divider(),
 
-              // Vendor
-              pw.Text(
-                'Vendor: ${delivery.vendorName}',
-                style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-              ),
-              pw.Text(
-                'Tarikh: $deliveryDate',
-                style: const pw.TextStyle(fontSize: 7),
+              // Items Table Header
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Produk',
+                    style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.Text(
+                    'Kuantiti',
+                    style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.Text(
+                    'Harga',
+                    style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.Text(
+                    'Jumlah',
+                    style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                  ),
+                ],
               ),
 
-              pw.SizedBox(height: 4),
+              pw.SizedBox(height: 2),
               pw.Divider(),
 
               // Items
@@ -608,62 +715,228 @@ class DeliveryInvoicePDFGenerator {
                 final lineTotal = acceptedQty * item.unitPrice;
                 return pw.Padding(
                   padding: const pw.EdgeInsets.only(bottom: 4),
-                  child: pw.Column(
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(
-                        item.productName,
-                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Text(
-                            '${acceptedQty.toStringAsFixed(1)} x RM${item.unitPrice.toStringAsFixed(2)}',
-                            style: const pw.TextStyle(fontSize: 7),
-                          ),
-                          pw.Text(
-                            'RM${lineTotal.toStringAsFixed(2)}',
-                            style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      if (item.rejectedQty > 0)
-                        pw.Text(
-                          'Ditolak: ${item.rejectedQty.toStringAsFixed(1)}',
-                          style: pw.TextStyle(fontSize: 6, color: PdfColors.red700),
+                      // Produk
+                      pw.Expanded(
+                        flex: 3,
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text(
+                              item.productName,
+                              style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                            ),
+                            if (item.rejectedQty > 0) ...[
+                              pw.SizedBox(height: 2),
+                              pw.Text(
+                                'Ditolak: ${item.rejectedQty.toStringAsFixed(0)}',
+                                style: pw.TextStyle(fontSize: 6, color: PdfColors.red700),
+                              ),
+                              if (item.rejectionReason != null && item.rejectionReason!.isNotEmpty)
+                                pw.Text(
+                                  '(${item.rejectionReason})',
+                                  style: pw.TextStyle(fontSize: 6, color: PdfColors.red700),
+                                ),
+                            ],
+                          ],
                         ),
+                      ),
+                      // Kuantiti
+                      pw.Expanded(
+                        flex: 1,
+                        child: pw.Text(
+                          acceptedQty.toStringAsFixed(0),
+                          style: const pw.TextStyle(fontSize: 7),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      // Harga
+                      pw.Expanded(
+                        flex: 1,
+                        child: pw.Text(
+                          item.unitPrice.toStringAsFixed(2),
+                          style: const pw.TextStyle(fontSize: 7),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                      // Jumlah
+                      pw.Expanded(
+                        flex: 1,
+                        child: pw.Text(
+                          lineTotal.toStringAsFixed(2),
+                          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
                     ],
                   ),
                 );
               }),
 
               pw.SizedBox(height: 4),
-              pw.Divider(),
+              pw.Divider(thickness: 2),
 
-              // Total
+              // Totals
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
                   pw.Text(
-                    'JUMLAH:',
-                    style: pw.TextStyle(
-                      fontSize: 9,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    'Jumlah Kasar:',
+                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
                   ),
                   pw.Text(
-                    // Recalculate total based on accepted quantities
-                    'RM${delivery.items.fold<double>(0.0, (sum, item) {
-                      final acceptedQty = item.quantity - item.rejectedQty;
-                      return sum + (acceptedQty * item.unitPrice);
-                    }).toStringAsFixed(2)}',
-                    style: pw.TextStyle(
-                      fontSize: 9,
-                      fontWeight: pw.FontWeight.bold,
+                    'RM ${totalAmount.toStringAsFixed(2)}',
+                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 4),
+              pw.Divider(thickness: 2),
+              pw.SizedBox(height: 2),
+              pw.Center(
+                child: pw.Text(
+                  'JUMLAH KESELURUHAN: RM ${totalAmount.toStringAsFixed(2)}',
+                  style: pw.TextStyle(
+                    fontSize: 10,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+
+              pw.SizedBox(height: 4),
+              pw.Divider(),
+
+              // Nota Penting
+              pw.Align(
+                alignment: pw.Alignment.centerLeft,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      '* Harga sudah termasuk tolakan komisyen',
+                      style: const pw.TextStyle(fontSize: 6),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'NOTA PENTING:',
+                      style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Text(
+                      'Jumlah akhir bayaran tertakluk kepada kuantiti sebenar produk yang berjaya dijual oleh kedai.',
+                      style: const pw.TextStyle(fontSize: 6),
+                    ),
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(height: 4),
+              pw.Divider(),
+
+              // Maklumat Pembayaran
+              pw.Center(
+                child: pw.Text(
+                  'MAKLUMAT PEMBAYARAN',
+                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              if (businessProfile?.paymentQrCode != null && businessProfile!.paymentQrCode!.isNotEmpty) ...[
+                pw.Center(
+                  child: pw.Text(
+                    'Scan untuk bayar',
+                    style: const pw.TextStyle(fontSize: 7),
+                  ),
+                ),
+                pw.SizedBox(height: 2),
+                // Display QR code image if downloaded successfully
+                if (qrCodeImage != null) ...[
+                  pw.Center(
+                    child: pw.Image(
+                      qrCodeImage!,
+                      width: 80,
+                      height: 80,
+                      fit: pw.BoxFit.contain,
+                    ),
+                  ),
+                ] else ...[
+                  // Fallback to URL text if image download failed
+                  pw.Center(
+                    child: pw.Text(
+                      businessProfile.paymentQrCode!,
+                      style: pw.TextStyle(fontSize: 6, color: PdfColors.blue700),
                     ),
                   ),
                 ],
+                pw.SizedBox(height: 4),
+              ],
+              if (businessProfile?.bankName != null && businessProfile!.bankName!.isNotEmpty) ...[
+                pw.Text(
+                  businessProfile.bankName!,
+                  style: const pw.TextStyle(fontSize: 7),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
+              if (businessProfile?.accountNumber != null && businessProfile!.accountNumber!.isNotEmpty) ...[
+                pw.Text(
+                  businessProfile.accountNumber!,
+                  style: const pw.TextStyle(fontSize: 7),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
+              if (businessProfile?.accountName != null && businessProfile!.accountName!.isNotEmpty) ...[
+                pw.Text(
+                  businessProfile.accountName!,
+                  style: const pw.TextStyle(fontSize: 7),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
+
+              pw.SizedBox(height: 4),
+              pw.Divider(),
+
+              // Diterima Oleh
+              pw.Align(
+                alignment: pw.Alignment.centerLeft,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Diterima Oleh:',
+                      style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.SizedBox(height: 8),
+                    pw.Text(
+                      '_________________________',
+                      style: const pw.TextStyle(fontSize: 7),
+                    ),
+                    pw.Text(
+                      'Nama Wakil Kedai',
+                      style: const pw.TextStyle(fontSize: 6),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'Tarikh: _______________',
+                      style: const pw.TextStyle(fontSize: 7),
+                    ),
+                  ],
+                ),
+              ),
+
+              pw.SizedBox(height: 4),
+              pw.Divider(),
+
+              // Terima kasih
+              pw.Center(
+                child: pw.Text(
+                  'Terima kasih atas kerjasama!',
+                  style: pw.TextStyle(
+                    fontSize: 8,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
               ),
 
               pw.SizedBox(height: 4),
@@ -672,9 +945,9 @@ class DeliveryInvoicePDFGenerator {
               // Footer
               pw.Center(
                 child: pw.Text(
-                  'Terima kasih!',
+                  'Dokumen ini dijana oleh www.pocketbizz.my',
                   style: pw.TextStyle(
-                    fontSize: 7,
+                    fontSize: 6,
                     color: PdfColors.grey600,
                   ),
                 ),

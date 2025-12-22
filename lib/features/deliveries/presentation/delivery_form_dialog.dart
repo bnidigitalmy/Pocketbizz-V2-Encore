@@ -111,12 +111,21 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
     // Load vendor commission
     try {
       final commission = await widget.deliveriesRepo.getVendorCommission(vendorId);
-      setState(() => _vendorCommission = commission);
+      debugPrint('📊 Vendor commission loaded: $commission');
+      setState(() {
+        _vendorCommission = commission;
+      });
       
       // Recalculate prices for existing items
-      _recalculateItemPrices();
+      if (_items.isNotEmpty) {
+        debugPrint('🔄 Recalculating prices for ${_items.length} items...');
+        await _recalculateItemPrices();
+      }
     } catch (e) {
-      debugPrint('Error loading commission: $e');
+      debugPrint('❌ Error loading commission: $e');
+      setState(() {
+        _vendorCommission = null;
+      });
     }
   }
 
@@ -649,11 +658,14 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
     
     // If no vendor selected or no commission info, return retail price
     if (_selectedVendorId == null || _vendorCommission == null) {
+      debugPrint('⚠️ Cannot calculate vendor price: vendor=${_selectedVendorId}, commission=${_vendorCommission}');
       return retailPrice;
     }
 
     final commissionType = _vendorCommission!['commissionType'] as String? ?? 'percentage';
     final commissionRate = double.tryParse(_vendorCommission!['percentage'] ?? '0') ?? 0.0;
+
+    debugPrint('💰 Calculating vendor price: retail=$price, type=$commissionType, rate=$commissionRate');
 
     try {
       final vendorPrice = await VendorPriceCalculator.calculateVendorPrice(
@@ -663,18 +675,26 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
         commissionRate: commissionRate,
       );
 
+      debugPrint('✅ Vendor price calculated: $retailPrice -> $vendorPrice (commission: ${price - vendorPrice})');
       return vendorPrice.toStringAsFixed(2);
     } catch (e) {
-      debugPrint('Error calculating vendor price: $e');
+      debugPrint('❌ Error calculating vendor price: $e');
       // Return retail price if calculation fails
       return retailPrice;
     }
   }
 
   Future<void> _recalculateItemPrices() async {
+    if (_selectedVendorId == null || _vendorCommission == null) {
+      debugPrint('⚠️ Cannot recalculate: vendor or commission not loaded');
+      return;
+    }
+
     for (var item in _items) {
       if (item.retailPrice != null && item.retailPrice!.isNotEmpty) {
+        final oldPrice = item.unitPrice;
         item.unitPrice = await _calculateVendorPrice(item.retailPrice!);
+        debugPrint('📝 Item "${item.productName}": ${item.retailPrice} -> ${item.unitPrice} (was: $oldPrice)');
       }
     }
     setState(() {

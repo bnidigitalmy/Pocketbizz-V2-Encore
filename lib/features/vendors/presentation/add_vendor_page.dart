@@ -15,6 +15,7 @@ class _AddVendorPageState extends State<AddVendorPage> {
   final _vendorsRepo = VendorsRepositorySupabase();
   
   final _nameController = TextEditingController();
+  final _vendorNumberController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
@@ -29,6 +30,7 @@ class _AddVendorPageState extends State<AddVendorPage> {
   @override
   void dispose() {
     _nameController.dispose();
+    _vendorNumberController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
@@ -48,6 +50,7 @@ class _AddVendorPageState extends State<AddVendorPage> {
     try {
       await _vendorsRepo.createVendor(
         name: _nameController.text.trim(),
+        vendorNumber: _vendorNumberController.text.trim().isEmpty ? null : _vendorNumberController.text.trim(),
         email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
         phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
         address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
@@ -95,6 +98,12 @@ class _AddVendorPageState extends State<AddVendorPage> {
               label: 'Vendor Name *',
               icon: Icons.store,
               validator: (value) => value?.isEmpty ?? true ? 'Required' : null,
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _vendorNumberController,
+              label: 'Nombor Vendor (NV)',
+              icon: Icons.numbers,
             ),
             const SizedBox(height: 16),
             _buildTextField(

@@ -16,11 +16,13 @@ class ReceiptStorageService {
   /// 
   /// [imageBytes] - The image file as bytes (base64 decoded)
   /// [expenseId] - Optional expense ID to link the receipt
+  /// [fileName] - Optional custom file name (default: auto-generated)
   /// 
   /// Returns the STORAGE PATH (not URL) for later signed URL generation
   static Future<String> uploadReceipt({
     required Uint8List imageBytes,
     String? expenseId,
+    String? fileName,
   }) async {
     try {
       // Get current user ID
@@ -31,14 +33,19 @@ class ReceiptStorageService {
 
       // Generate unique file name
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileName = expenseId != null 
+      final finalFileName = fileName ?? (expenseId != null 
           ? 'receipt-$expenseId-$timestamp.jpg'
-          : 'receipt-$timestamp.jpg';
+          : 'receipt-$timestamp.jpg');
+      
+      // Detect content type dari file extension
+      final contentType = finalFileName.endsWith('.pdf')
+          ? 'application/pdf'
+          : 'image/jpeg';
       
       // Organize by user ID and date
       final now = DateTime.now();
       final datePath = '${now.year}/${now.month.toString().padLeft(2, '0')}';
-      final storagePath = '$userId/$datePath/$fileName';
+      final storagePath = '$userId/$datePath/$finalFileName';
 
       if (kIsWeb) {
         // For web: use HTTP PUT with proper headers
@@ -76,7 +83,7 @@ class ReceiptStorageService {
           Uri.parse(storageUrl),
           headers: {
             'Authorization': 'Bearer $accessToken',
-            'Content-Type': 'image/jpeg',
+            'Content-Type': contentType,
             'apikey': supabaseAnonKey,
             'x-upsert': 'true', // Allow overwrite
           },
@@ -95,8 +102,8 @@ class ReceiptStorageService {
             .uploadBinary(
               storagePath,
               imageBytes,
-              fileOptions: const FileOptions(
-                contentType: 'image/jpeg',
+              fileOptions: FileOptions(
+                contentType: contentType,
                 upsert: true,
               ),
             );

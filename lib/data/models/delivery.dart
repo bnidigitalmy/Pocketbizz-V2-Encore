@@ -4,6 +4,7 @@ class Delivery {
   final String businessOwnerId;
   final String vendorId;
   final String vendorName;
+  final String? vendorNumber; // NV - Nombor Vendor
   final DateTime deliveryDate;
   final String status; // delivered, pending, claimed, rejected
   final String? paymentStatus; // pending, partial, settled
@@ -19,6 +20,7 @@ class Delivery {
     required this.businessOwnerId,
     required this.vendorId,
     required this.vendorName,
+    this.vendorNumber,
     required this.deliveryDate,
     required this.status,
     this.paymentStatus,
@@ -49,6 +51,7 @@ class Delivery {
       businessOwnerId: json['business_owner_id'] as String,
       vendorId: json['vendor_id'] as String,
       vendorName: json['vendor_name'] as String? ?? '',
+      vendorNumber: json['vendor_number'] as String?,
       deliveryDate: json['delivery_date'] is String
           ? DateTime.parse(json['delivery_date'] as String)
           : DateTime.now(),
@@ -73,6 +76,7 @@ class Delivery {
       'business_owner_id': businessOwnerId,
       'vendor_id': vendorId,
       'vendor_name': vendorName,
+      'vendor_number': vendorNumber,
       'delivery_date': deliveryDate.toIso8601String().split('T')[0],
       'status': status,
       'payment_status': paymentStatus,

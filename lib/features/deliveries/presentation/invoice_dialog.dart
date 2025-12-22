@@ -64,9 +64,18 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
         await _downloadPdfWeb(pdfBytes);
       } else {
         // Mobile / desktop: use printing plugin
-        await Printing.layoutPdf(
-          onLayout: (PdfPageFormat format) async => pdfBytes,
-        );
+        if (format == 'thermal') {
+          // For thermal, directly show print dialog (preview + print)
+          await Printing.layoutPdf(
+            onLayout: (PdfPageFormat format) async => pdfBytes,
+            format: PdfPageFormat(219.0, double.infinity, marginAll: 5), // 58mm thermal width
+          );
+        } else {
+          // For other formats, use standard print dialog
+          await Printing.layoutPdf(
+            onLayout: (PdfPageFormat format) async => pdfBytes,
+          );
+        }
       }
 
       // Auto-backup to Supabase Storage (non-blocking)
@@ -185,13 +194,21 @@ class _InvoiceDialogState extends State<InvoiceDialog> {
               ),
             ),
             const SizedBox(height: 8),
-            OutlinedButton.icon(
+            ElevatedButton.icon(
               onPressed: _isGeneratingPDF ? null : () => _generatePDF('thermal'),
               icon: const Icon(Icons.print),
-              label: const Text('Thermal 58mm (PDF)'),
-              style: OutlinedButton.styleFrom(
+              label: const Text('Cetak Thermal 58mm'),
+              style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
               ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Preview & print terus ke thermal printer',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
             ),
           ],
         ),

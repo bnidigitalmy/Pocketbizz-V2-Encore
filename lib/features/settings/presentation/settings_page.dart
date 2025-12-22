@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/business_profile_repository_supabase.dart';
 import '../../../core/supabase/supabase_client.dart';
+import '../../../core/services/image_upload_service.dart';
 
 /// Settings Page
 /// Manage business profile and user profile
@@ -17,6 +19,9 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
   final _repo = BusinessProfileRepository();
   final _formKey = GlobalKey<FormState>();
   late TabController _tabController;
+  final _imageUploadService = ImageUploadService();
+  final _imagePicker = ImagePicker();
+  bool _uploadingQrCode = false;
 
   // Business Profile Controllers
   final _businessNameController = TextEditingController();
@@ -240,6 +245,105 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
         setState(() => _savingProfile = false);
       }
     }
+  }
+
+  Future<void> _uploadQrCode() async {
+    try {
+      // Show image source selection dialog
+      final ImageSource? source = await showDialog<ImageSource>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Pilih Sumber Gambar'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Galeri'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Kamera'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (source == null) return;
+
+      // Pick image
+      final XFile? image = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 90,
+      );
+
+      if (image == null) return;
+
+      setState(() => _uploadingQrCode = true);
+
+      // Get current user ID
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Upload to Supabase Storage
+      final imageUrl = await _imageUploadService.uploadQrCodeImage(image, userId);
+
+      // Update controller with the URL
+      _paymentQrCodeController.text = imageUrl;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ QR Code berjaya diupload!'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ralat upload QR Code: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _uploadingQrCode = false);
+      }
+    }
+  }
+
+  void _removeQrCode() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Buang QR Code?'),
+        content: const Text('Adakah anda pasti mahu membuang QR Code ini?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () {
+              _paymentQrCodeController.clear();
+              Navigator.pop(context);
+              setState(() {});
+            },
+            child: const Text('Buang', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _changePassword() async {
@@ -638,26 +742,112 @@ class _SettingsPageState extends State<SettingsPage> with SingleTickerProviderSt
             ],
           ),
           const SizedBox(height: 12),
-          TextFormField(
-            controller: _paymentQrCodeController,
-            decoration: InputDecoration(
-              labelText: 'QR Code Bayaran (Pilihan)',
-              hintText: 'https://example.com/qr-code.png',
-              prefixIcon: const Icon(Icons.qr_code),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+          // QR Code Upload Section
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Upload Button
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _uploadingQrCode ? null : _uploadQrCode,
+                      icon: _uploadingQrCode
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.upload),
+                      label: Text(_uploadingQrCode ? 'Mengupload...' : 'Upload QR Code'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_paymentQrCodeController.text.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: _removeQrCode,
+                      icon: const Icon(Icons.delete_outline),
+                      color: Colors.red,
+                      tooltip: 'Buang QR Code',
+                    ),
+                  ],
+                ],
               ),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'URL gambar QR Code DuitNow / Bank untuk POS. Boleh upload ke Imgur atau Google Drive dan salin link.',
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey[600],
-            ),
+              const SizedBox(height: 8),
+              // QR Code Preview
+              if (_paymentQrCodeController.text.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          _paymentQrCodeController.text,
+                          height: 150,
+                          width: 150,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              height: 150,
+                              width: 150,
+                              color: Colors.grey[200],
+                              child: const Icon(Icons.broken_image, size: 48),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'QR Code berjaya diupload',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green[700],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              // Manual URL Input (Alternative)
+              TextFormField(
+                controller: _paymentQrCodeController,
+                decoration: InputDecoration(
+                  labelText: 'QR Code Bayaran (Pilihan)',
+                  hintText: 'Atau masukkan URL QR Code secara manual',
+                  prefixIcon: const Icon(Icons.qr_code),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Upload QR Code DuitNow / Bank untuk POS. Atau masukkan URL QR Code secara manual.',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
           ),
         ],
       ),

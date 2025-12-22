@@ -11,6 +11,7 @@ class Vendor {
   
   // Vendor Information
   final String name;
+  final String? vendorNumber; // NV - Nombor Vendor
   final String? email;
   final String? phone;
   final String? address;
@@ -38,6 +39,7 @@ class Vendor {
     required this.id,
     required this.businessOwnerId,
     required this.name,
+    this.vendorNumber,
     this.email,
     this.phone,
     this.address,
@@ -57,6 +59,7 @@ class Vendor {
       id: json['id'] as String,
       businessOwnerId: json['business_owner_id'] as String,
       name: json['name'] as String,
+      vendorNumber: json['vendor_number'] as String?,
       email: json['email'] as String?,
       phone: json['phone'] as String?,
       address: json['address'] as String?,
@@ -77,6 +80,7 @@ class Vendor {
       'id': id,
       'business_owner_id': businessOwnerId,
       'name': name,
+      'vendor_number': vendorNumber,
       'email': email,
       'phone': phone,
       'address': address,
@@ -96,6 +100,7 @@ class Vendor {
     return {
       'business_owner_id': businessOwnerId,
       'name': name,
+      'vendor_number': vendorNumber,
       'email': email,
       'phone': phone,
       'address': address,

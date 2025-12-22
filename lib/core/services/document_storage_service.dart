@@ -108,16 +108,17 @@ class DocumentStorageService {
             );
       }
 
-      // Get public URL
-      final String publicUrl = supabase.storage
+      // Get signed URL (bucket is private, so we need signed URL)
+      // Signed URL expires in 7 days (604800 seconds)
+      final String signedUrl = await supabase.storage
           .from(_bucketName)
-          .getPublicUrl(storagePath);
+          .createSignedUrl(storagePath, 604800);
 
       print('✅ Document uploaded to Supabase Storage: $storagePath');
       
       return {
         'path': storagePath,
-        'url': publicUrl,
+        'url': signedUrl,
       };
     } catch (e) {
       print('❌ Failed to upload document to Supabase Storage: $e');

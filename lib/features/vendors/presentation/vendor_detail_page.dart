@@ -310,6 +310,8 @@ class _VendorDetailPageState extends State<VendorDetailPage> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const Divider(),
+            if (_vendor!.vendorNumber != null && _vendor!.vendorNumber!.isNotEmpty)
+              _buildInfoRow(Icons.numbers, 'NV: ${_vendor!.vendorNumber}'),
             if (_vendor!.phone != null)
               _buildInfoRow(Icons.phone, _vendor!.phone!),
             if (_vendor!.email != null)

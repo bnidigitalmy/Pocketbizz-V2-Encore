@@ -85,6 +85,8 @@ class Expense {
   final String? notes;
   final String? ocrReceiptId;
   final String? receiptImageUrl; // URL to receipt image in Supabase Storage
+  final String? documentImageUrl; // URL to cropped document image in Supabase Storage
+  final String? documentPdfUrl; // URL to document PDF in Supabase Storage
   final ReceiptData? receiptData; // Structured receipt data from OCR
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -102,6 +104,8 @@ class Expense {
     this.notes,
     this.ocrReceiptId,
     this.receiptImageUrl,
+    this.documentImageUrl,
+    this.documentPdfUrl,
     this.receiptData,
   });
 
@@ -119,6 +123,8 @@ class Expense {
       notes: json['notes'] as String?,
       ocrReceiptId: json['ocr_receipt_id'] as String?,
       receiptImageUrl: json['receipt_image_url'] as String?,
+      documentImageUrl: json['document_image_url'] as String?,
+      documentPdfUrl: json['document_pdf_url'] as String?,
       receiptData: json['receipt_data'] != null
           ? ReceiptData.fromJson(json['receipt_data'] as Map<String, dynamic>)
           : null,
@@ -143,6 +149,8 @@ class Expense {
       'notes': notes,
       'ocr_receipt_id': ocrReceiptId,
       'receipt_image_url': receiptImageUrl,
+      'document_image_url': documentImageUrl,
+      'document_pdf_url': documentPdfUrl,
       'receipt_data': receiptData?.toJson(),
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),

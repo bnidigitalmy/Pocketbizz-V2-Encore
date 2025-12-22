@@ -9,12 +9,16 @@ import 'dart:ui_web' as ui_web;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/receipt_storage_service.dart';
+import '../../../core/services/document_storage_service.dart';
 import '../../../data/repositories/expenses_repository_supabase.dart';
 import '../../../data/models/expense.dart';
+import 'widgets/document_cropper_widget.dart';
 
 /// Parsed receipt data from OCR
 class ParsedReceipt {
@@ -96,9 +100,12 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
   bool _isSaving = false;
   String? _imageDataUrl;
   Uint8List? _imageBytes;
+  Uint8List? _croppedImageBytes; // Cropped document image
+  Uint8List? _pdfBytes; // Generated PDF bytes
   ParsedReceipt? _parsedReceipt;
   String? _ocrError;
   String? _storagePathFromOCR; // Storage path returned by OCR Edge Function
+  bool _showCropper = false; // Show cropping widget after capture
 
   // Editable form fields (after OCR)
   final _formKey = GlobalKey<FormState>();
@@ -299,10 +306,10 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
         _imageDataUrl = dataUrl;
         _imageBytes = bytes;
         _isCameraReady = false;
+        _showCropper = true; // Show cropping widget
       });
 
-      // Process with OCR
-      await _processImageBytes(bytes);
+      // Don't process OCR yet - wait for user to crop document
 
     } catch (e) {
       if (mounted) {
@@ -361,9 +368,48 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
       _imageDataUrl = dataUrl;
       _imageBytes = bytes;
       _isCameraReady = false;
+      _showCropper = true; // Show cropping widget
     });
 
-    await _processImageBytes(bytes);
+    // Don't process OCR yet - wait for user to crop document
+  }
+
+  /// Handle cropped image dari DocumentCropperWidget
+  Future<void> _onImageCropped(Uint8List croppedBytes) async {
+    setState(() {
+      _croppedImageBytes = croppedBytes;
+      _showCropper = false;
+    });
+
+    // Process OCR dari cropped image
+    await _processImageBytes(croppedBytes);
+  }
+
+  /// Generate PDF dari cropped image
+  Future<Uint8List> _generatePdfFromImage(Uint8List imageBytes) async {
+    try {
+      final pdf = pw.Document();
+      
+      // Convert image bytes to PDF image
+      final pdfImage = pw.MemoryImage(imageBytes);
+      
+      // Get image dimensions untuk maintain aspect ratio
+      // Note: pdf package akan auto-scale, tapi kita maintain aspect ratio
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return pw.Center(
+              child: pw.Image(pdfImage, fit: pw.BoxFit.contain),
+            );
+          },
+        ),
+      );
+
+      return await pdf.save();
+    } catch (e) {
+      throw Exception('Failed to generate PDF: $e');
+    }
   }
 
   /// Process image bytes with Google Cloud Vision OCR
@@ -538,35 +584,49 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
         throw Exception('Jumlah tidak sah: $amountText');
       }
 
-      // Use storage path from OCR Edge Function if available, otherwise upload manually
-      String? receiptImageUrl;
+      // Generate PDF dari cropped image
+      String? documentPdfUrl;
+      String? documentImageUrl;
       
-      if (_storagePathFromOCR != null) {
-        // Edge Function already uploaded the image
-        receiptImageUrl = _storagePathFromOCR;
-        debugPrint('✅ Using storage path from OCR Edge Function: $receiptImageUrl');
-      } else if (_imageBytes != null) {
-        // Fallback: Upload manually if Edge Function didn't upload
+      if (_croppedImageBytes != null) {
         try {
-          receiptImageUrl = await ReceiptStorageService.uploadReceipt(
-            imageBytes: _imageBytes!,
+          // Generate PDF
+          _pdfBytes = await _generatePdfFromImage(_croppedImageBytes!);
+          
+          // Upload PDF ke Supabase Storage
+          // Upload PDF document using DocumentStorageService (supports PDF MIME type)
+          final pdfFileName = 'receipt-${DateTime.now().millisecondsSinceEpoch}.pdf';
+          final pdfUploadResult = await DocumentStorageService.uploadDocument(
+            pdfBytes: _pdfBytes!,
+            fileName: pdfFileName,
+            documentType: 'receipt',
+            relatedEntityType: 'expense',
           );
-          debugPrint('✅ Receipt image uploaded manually: $receiptImageUrl');
+          documentPdfUrl = pdfUploadResult['url'];
+          debugPrint('✅ PDF uploaded: $documentPdfUrl');
+          
+          // Upload cropped image using ReceiptStorageService (for images)
+          documentImageUrl = await ReceiptStorageService.uploadReceipt(
+            imageBytes: _croppedImageBytes!,
+            fileName: 'receipt-${DateTime.now().millisecondsSinceEpoch}.jpg',
+          );
+          debugPrint('✅ Cropped image uploaded: $documentImageUrl');
         } catch (uploadError) {
-          // Show error to user but allow them to continue without image
-          debugPrint('❌ Receipt upload failed: $uploadError');
+          debugPrint('❌ Document upload failed: $uploadError');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Amaran: Gagal upload gambar resit. Rekod akan disimpan tanpa gambar. Error: ${uploadError.toString()}'),
+                content: Text('Amaran: Gagal upload dokumen. Rekod akan disimpan tanpa dokumen. Error: ${uploadError.toString()}'),
                 backgroundColor: Colors.orange,
                 duration: const Duration(seconds: 5),
               ),
             );
           }
-          // Continue without image - expense will be saved without receipt URL
         }
       }
+      
+      // Legacy: Keep receiptImageUrl untuk backward compatibility
+      String? receiptImageUrl = documentImageUrl;
 
       // Build description from merchant and notes
       String description = _merchantController.text.isNotEmpty
@@ -606,7 +666,9 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
         category: _selectedCategory,
         expenseDate: _selectedDate,
         description: description,
-        receiptImageUrl: receiptImageUrl,
+        receiptImageUrl: receiptImageUrl, // Legacy field
+        documentImageUrl: documentImageUrl, // New: cropped image
+        documentPdfUrl: documentPdfUrl, // New: PDF
         receiptData: receiptData,
       );
 
@@ -615,14 +677,16 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
       debugPrint('📸 Receipt URL in saved expense: ${savedExpense.receiptImageUrl}');
 
       if (mounted) {
-        final message = receiptImageUrl != null
-            ? 'Perbelanjaan berjaya disimpan dengan gambar resit!'
-            : 'Perbelanjaan berjaya disimpan (tanpa gambar resit)';
+        final message = documentPdfUrl != null
+            ? 'Perbelanjaan berjaya disimpan dengan dokumen PDF!'
+            : documentImageUrl != null
+                ? 'Perbelanjaan berjaya disimpan dengan gambar resit!'
+                : 'Perbelanjaan berjaya disimpan (tanpa dokumen)';
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
-            backgroundColor: receiptImageUrl != null ? AppColors.success : Colors.orange,
+            backgroundColor: documentPdfUrl != null ? AppColors.success : Colors.orange,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -650,9 +714,12 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
     setState(() {
       _imageDataUrl = null;
       _imageBytes = null;
+      _croppedImageBytes = null;
+      _pdfBytes = null;
       _parsedReceipt = null;
       _ocrError = null;
-      _storagePathFromOCR = null; // Reset storage path
+      _storagePathFromOCR = null;
+      _showCropper = false;
       _amountController.clear();
       _dateController.text = DateFormat('yyyy-MM-dd').format(DateTime.now());
       _selectedDate = DateTime.now();
@@ -680,7 +747,15 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
             ),
         ],
       ),
-      body: _imageDataUrl == null ? _buildLiveCameraView() : _buildResultView(),
+      body: _imageDataUrl == null
+          ? _buildLiveCameraView()
+          : _showCropper
+              ? DocumentCropperWidget(
+                  imageBytes: _imageBytes!,
+                  imageDataUrl: _imageDataUrl,
+                  onCropped: _onImageCropped,
+                )
+              : _buildResultView(),
     );
   }
 
