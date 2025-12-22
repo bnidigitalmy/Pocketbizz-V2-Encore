@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
@@ -965,14 +966,24 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           ),
         const SizedBox(height: 16),
         // Grid 2x2 untuk semua screen sizes (lebih cantik dan mudah untuk comparison)
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.75, // Adjusted untuk 2x2 grid
-          children: _plans.map((plan) => _buildPackageCard(plan)).toList(),
+        // Adjusted childAspectRatio untuk mobile - lebih tinggi supaya button tidak tertindih
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // Calculate aspect ratio based on screen width untuk better mobile fit
+            final screenWidth = constraints.maxWidth;
+            // Untuk mobile (narrow screen), use taller aspect ratio
+            final aspectRatio = screenWidth < 400 ? 0.65 : 0.75;
+            
+            return GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: aspectRatio, // Dynamic untuk mobile
+              children: _plans.map((plan) => _buildPackageCard(plan)).toList(),
+            );
+          },
         ),
         const SizedBox(height: 16),
         Container(
@@ -982,20 +993,93 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.amber.shade200),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'PENTING: Gunakan email yang sama (${supabase.auth.currentUser?.email ?? ''}) semasa isi borang pembayaran',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.amber.shade900,
+              Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'PENTING: Gunakan email yang sama semasa isi borang pembayaran',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.amber.shade900,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Email dengan copy button
+              GestureDetector(
+                onTap: () async {
+                  final email = supabase.auth.currentUser?.email ?? '';
+                  if (email.isNotEmpty) {
+                    await Clipboard.setData(ClipboardData(text: email));
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text('Email disalin: $email'),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: AppColors.success,
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.amber.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          supabase.auth.currentUser?.email ?? '',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.amber.shade900,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.copy,
+                        color: Colors.amber.shade800,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Salin',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.amber.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1092,12 +1176,23 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ? null 
             : () => _handlePayment(plan.durationMonths, isExtend: isExtending),
           borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Adjust padding untuk mobile (smaller screens)
+              final isMobile = constraints.maxWidth < 200;
+              final cardPadding = isMobile ? 12.0 : 16.0;
+              final fontSize = isMobile ? 12.0 : 14.0;
+              final priceFontSize = isMobile ? 24.0 : 28.0;
+              final buttonPadding = isMobile 
+                  ? const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
+                  : const EdgeInsets.symmetric(horizontal: 20, vertical: 10);
+              
+              return Padding(
+                padding: EdgeInsets.all(cardPadding),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1181,186 +1276,196 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                 ],
               ),
               if (savingsText != null || isPopular) const SizedBox(height: 12),
-              Text(
-                '${plan.durationMonths} Bulan',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: isCurrentPlan ? textBrown : AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                // Always show whole number for professional display (prices are rounded)
-                'RM${price.round()}',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: isCurrentPlan ? textBrown : AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                // Show monthly price rounded to nearest integer
-                'RM${pricePerMonth.round()}/bulan',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isCurrentPlan
-                      ? textBrown.withOpacity(0.8)
-                      : AppColors.textSecondary,
-                  fontWeight: isCurrentPlan ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _isEarlyAdopter
-                    ? 'Harga Early Bird aktif (RM29/bulan)'
-                    : 'Early Bird: 100 pengguna pertama RM29/bulan',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: _isEarlyAdopter ? AppColors.success : AppColors.textSecondary,
-                  fontWeight: _isEarlyAdopter ? FontWeight.w600 : FontWeight.w400,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
-              // Show calculation for extend
-              if (isExtending && !isCurrentPlan && _currentSubscription != null) ...[
-                const SizedBox(height: 8),
-                Builder(
-                  builder: (context) {
-                    final currentExpiry = _currentSubscription!.expiresAt;
-                    final remainingDays = _currentSubscription!.daysRemaining;
-                    // Calculate actual days using calendar months (not fixed 30 days)
-                    final tempYear = currentExpiry.year + (currentExpiry.month + plan.durationMonths - 1) ~/ 12;
-                    final tempMonth = ((currentExpiry.month + plan.durationMonths - 1) % 12) + 1;
-                    final daysInNewMonth = DateTime(tempYear, tempMonth + 1, 0).day;
-                    final adjustedDay = currentExpiry.day > daysInNewMonth ? daysInNewMonth : currentExpiry.day;
-                    final newExpiry = DateTime(tempYear, tempMonth, adjustedDay);
-                    final newDurationDays = newExpiry.difference(currentExpiry).inDays;
-                    final totalDays = remainingDays + newDurationDays;
-                    
-                    return Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.info.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: AppColors.info.withOpacity(0.2),
-                          width: 1,
-                        ),
+                    Text(
+                      '${plan.durationMonths} Bulan',
+                      style: TextStyle(
+                        fontSize: fontSize,
+                        fontWeight: FontWeight.bold,
+                        color: isCurrentPlan ? textBrown : AppColors.textPrimary,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Tarikh baru: ${DateTimeHelper.formatDate(newExpiry)}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.info,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text.rich(
-                            TextSpan(
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: AppColors.textSecondary,
+                    ),
+                    SizedBox(height: isMobile ? 6 : 8),
+                    Text(
+                      // Always show whole number for professional display (prices are rounded)
+                      'RM${price.round()}',
+                      style: TextStyle(
+                        fontSize: priceFontSize,
+                        fontWeight: FontWeight.bold,
+                        color: isCurrentPlan ? textBrown : AppColors.primary,
+                      ),
+                    ),
+                    SizedBox(height: isMobile ? 2 : 4),
+                    Text(
+                      // Show monthly price rounded to nearest integer
+                      'RM${pricePerMonth.round()}/bulan',
+                      style: TextStyle(
+                        fontSize: isMobile ? 10 : 12,
+                        color: isCurrentPlan
+                            ? textBrown.withOpacity(0.8)
+                            : AppColors.textSecondary,
+                        fontWeight: isCurrentPlan ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                    SizedBox(height: isMobile ? 4 : 6),
+                    Text(
+                      _isEarlyAdopter
+                          ? 'Harga Early Bird aktif (RM29/bulan)'
+                          : 'Early Bird: 100 pengguna pertama RM29/bulan',
+                      style: TextStyle(
+                        fontSize: isMobile ? 9 : 11,
+                        color: _isEarlyAdopter ? AppColors.success : AppColors.textSecondary,
+                        fontWeight: _isEarlyAdopter ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                    // Show calculation for extend
+                    if (isExtending && !isCurrentPlan && _currentSubscription != null) ...[
+                      SizedBox(height: isMobile ? 6 : 8),
+                      Builder(
+                        builder: (context) {
+                          final currentExpiry = _currentSubscription!.expiresAt;
+                          final remainingDays = _currentSubscription!.daysRemaining;
+                          // Calculate actual days using calendar months (not fixed 30 days)
+                          final tempYear = currentExpiry.year + (currentExpiry.month + plan.durationMonths - 1) ~/ 12;
+                          final tempMonth = ((currentExpiry.month + plan.durationMonths - 1) % 12) + 1;
+                          final daysInNewMonth = DateTime(tempYear, tempMonth + 1, 0).day;
+                          final adjustedDay = currentExpiry.day > daysInNewMonth ? daysInNewMonth : currentExpiry.day;
+                          final newExpiry = DateTime(tempYear, tempMonth, adjustedDay);
+                          final newDurationDays = newExpiry.difference(currentExpiry).inDays;
+                          final totalDays = remainingDays + newDurationDays;
+                          
+                          return Container(
+                            padding: EdgeInsets.all(isMobile ? 6 : 8),
+                            decoration: BoxDecoration(
+                              color: AppColors.info.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: AppColors.info.withOpacity(0.2),
+                                width: 1,
                               ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                const TextSpan(text: 'Jumlah hari: '),
-                                TextSpan(text: '$remainingDays + $newDurationDays'),
-                                const TextSpan(text: '\n= '),
-                                TextSpan(
-                                  text: '$totalDays hari',
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                Text(
+                                  'Tarikh baru: ${DateTimeHelper.formatDate(newExpiry)}',
+                                  style: TextStyle(
+                                    fontSize: isMobile ? 9 : 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.info,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                SizedBox(height: isMobile ? 1 : 2),
+                                Text.rich(
+                                  TextSpan(
+                                    style: TextStyle(
+                                      fontSize: isMobile ? 8 : 9,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    children: [
+                                      const TextSpan(text: 'Jumlah hari: '),
+                                      TextSpan(text: '$remainingDays + $newDurationDays'),
+                                      const TextSpan(text: '\n= '),
+                                      TextSpan(
+                                        text: '$totalDays hari',
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ],
-              const SizedBox(height: 12),
-              if (isCurrentPlan)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: borderBrown, // Soft brown
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: [
-                      BoxShadow(
-                        color: borderBrown.withOpacity(0.3),
-                        blurRadius: 6,
-                        spreadRadius: 0,
-                        offset: const Offset(0, 2),
+                          );
+                        },
                       ),
                     ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.verified,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'Pakej Semasa',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.3,
+                    SizedBox(height: isMobile ? 8 : 12),
+                    if (isCurrentPlan)
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isMobile ? 12 : 16, 
+                          vertical: isMobile ? 6 : 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: borderBrown, // Soft brown
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: borderBrown.withOpacity(0.3),
+                              blurRadius: 6,
+                              spreadRadius: 0,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.verified,
+                              color: Colors.white,
+                              size: isMobile ? 14 : 16,
+                            ),
+                            SizedBox(width: isMobile ? 4 : 6),
+                            Text(
+                              'Pakej Semasa',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isMobile ? 10 : 12,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (canSelectPlan)
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _processingPayment 
+                              ? null 
+                              : () => _handlePayment(plan.durationMonths, isExtend: isExtending),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: buttonPadding,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            minimumSize: Size.zero, // Remove minimum size constraint
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap, // Reduce tap target
+                          ),
+                          child: _processingPayment
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : Text(
+                                  isExtending ? 'Tambah Tempoh' : 'Upgrade',
+                                  style: TextStyle(
+                                    fontSize: isMobile ? 11 : 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                         ),
                       ),
-                    ],
-                  ),
-                )
-              else if (canSelectPlan)
-                ElevatedButton(
-                  onPressed: _processingPayment 
-                      ? null 
-                      : () => _handlePayment(plan.durationMonths, isExtend: isExtending),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
-                  child: _processingPayment
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : Text(
-                          isExtending ? 'Tambah Tempoh' : 'Upgrade',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
