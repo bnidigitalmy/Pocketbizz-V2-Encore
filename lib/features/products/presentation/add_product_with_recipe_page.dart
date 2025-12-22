@@ -4,7 +4,6 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/utils/unit_conversion.dart';
-import '../../../core/widgets/stock_item_search_field.dart';
 import '../../../core/services/image_upload_service.dart';
 import '../../../data/models/stock_item.dart';
 import '../../../data/models/category.dart';
@@ -642,6 +641,448 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
     );
   }
 
+  void _showIngredientSelector(int itemIndex, RecipeItemInput item) {
+    final searchController = TextEditingController();
+    List<StockItem> filteredStock = List.from(_stockItems);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          String searchQuery = '';
+
+          void updateFilter(String query) {
+            setModalState(() {
+              searchQuery = query;
+              if (query.isEmpty) {
+                filteredStock = List.from(_stockItems);
+              } else {
+                final lowerQuery = query.toLowerCase();
+                filteredStock = _stockItems.where((stock) {
+                  return stock.name.toLowerCase().contains(lowerQuery);
+                }).toList();
+              }
+            });
+          }
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.75,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (context, scrollController) => Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  // Handle bar
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.restaurant_menu,
+                            color: AppColors.primary,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Pilih Bahan',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Search bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextField(
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Cari bahan...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  searchController.clear();
+                                  updateFilter('');
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                      onChanged: updateFilter,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1),
+                  // Stock Items List
+                  Expanded(
+                    child: filteredStock.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.inventory_2_outlined,
+                                  size: 64,
+                                  color: Colors.grey[300],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  searchQuery.isNotEmpty
+                                      ? 'Tiada bahan ditemui'
+                                      : 'Tiada bahan tersedia',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filteredStock.length,
+                            itemBuilder: (context, index) {
+                              final stock = filteredStock[index];
+                              final isAvailable = stock.currentQuantity > 0;
+                              final costPerUnit = stock.purchasePrice / stock.packageSize;
+                              final packageInfo = '${stock.packageSize}${stock.unit} @ RM${stock.purchasePrice.toStringAsFixed(2)}';
+
+                              return Card(
+                                elevation: 2,
+                                margin: const EdgeInsets.only(bottom: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  side: BorderSide(
+                                    color: isAvailable
+                                        ? Colors.grey[200]!
+                                        : Colors.red[200]!,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: InkWell(
+                                  onTap: isAvailable
+                                      ? () {
+                                          Navigator.pop(context);
+                                          _showQuantityDialogForItem(itemIndex, item, stock);
+                                        }
+                                      : null,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Row(
+                                      children: [
+                                        // Stock Icon
+                                        Container(
+                                          width: 60,
+                                          height: 60,
+                                          decoration: BoxDecoration(
+                                            color: isAvailable
+                                                ? Colors.green[50]
+                                                : Colors.red[50],
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: isAvailable
+                                                  ? Colors.green[200]!
+                                                  : Colors.red[200]!,
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            isAvailable
+                                                ? Icons.inventory_2
+                                                : Icons.warning_amber_rounded,
+                                            color: isAvailable
+                                                ? Colors.green[600]
+                                                : Colors.orange[600],
+                                            size: 28,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        // Stock Info
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                stock.name,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 4,
+                                                children: [
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 6,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.blue[50],
+                                                      borderRadius:
+                                                          BorderRadius.circular(8),
+                                                    ),
+                                                    child: Text(
+                                                      'RM${costPerUnit.toStringAsFixed(4)}/${stock.unit}',
+                                                      style: TextStyle(
+                                                        fontWeight: FontWeight.bold,
+                                                        fontSize: 12,
+                                                        color: Colors.blue[700],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 6,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: isAvailable
+                                                          ? Colors.green[50]
+                                                          : Colors.red[50],
+                                                      borderRadius:
+                                                          BorderRadius.circular(8),
+                                                    ),
+                                                    child: Text(
+                                                      'Stok: ${stock.currentQuantity.toStringAsFixed(1)}',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.w500,
+                                                        color: isAvailable
+                                                            ? Colors.green[700]
+                                                            : Colors.red[700],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                packageInfo,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        // Add Icon
+                                        if (isAvailable)
+                                          Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary
+                                                  .withOpacity(0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            child: Icon(
+                                              Icons.add_circle,
+                                              color: AppColors.primary,
+                                              size: 28,
+                                            ),
+                                          )
+                                        else
+                                          const Icon(
+                                            Icons.block,
+                                            color: Colors.grey,
+                                            size: 28,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showQuantityDialogForItem(int itemIndex, RecipeItemInput item, StockItem stock) {
+    final quantityController = TextEditingController(
+      text: item.quantityController.text.isEmpty ? '1' : item.quantityController.text,
+    );
+    String selectedUnit = item.usageUnit ?? stock.unit;
+    List<String> compatibleUnits = UnitConversion.getCompatibleUnits(stock.unit)
+      ..sort();
+    if (!compatibleUnits.map((u) => u.toLowerCase()).contains(stock.unit.toLowerCase())) {
+      compatibleUnits.insert(0, stock.unit);
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                const Icon(Icons.add_circle, color: Colors.blue),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    stock.name,
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: quantityController,
+                    decoration: const InputDecoration(
+                      labelText: 'Kuantiti',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: selectedUnit,
+                    decoration: const InputDecoration(
+                      labelText: 'Unit Resepi',
+                      border: OutlineInputBorder(),
+                      helperText: 'Unit mesti serasi dengan unit stok bahan.',
+                    ),
+                    items: compatibleUnits
+                        .map(
+                          (u) => DropdownMenuItem<String>(
+                            value: u,
+                            child: Text(u),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() {
+                        selectedUnit = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info, color: Colors.blue[700], size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Stok tersedia: ${stock.currentQuantity.toStringAsFixed(1)} ${stock.unit}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Batal'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final quantity = double.tryParse(quantityController.text) ?? 0.0;
+                  if (quantity <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Kuantiti mesti lebih daripada 0'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  setState(() {
+                    item.stockItemId = stock.id;
+                    item.quantityController.text = quantity.toString();
+                    item.usageUnit = selectedUnit;
+                  });
+                  Navigator.pop(context);
+                  _calculateCosts();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Tambah'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildRecipeItemCard(int index, RecipeItemInput item) {
     final selectedStock = item.stockItemId != null
         ? _stockItems.firstWhere((s) => s.id == item.stockItemId, orElse: () => _stockItems.first)
@@ -699,21 +1140,30 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
           
           const SizedBox(height: 12),
           
-          // Stock Item Dropdown
-          StockItemSearchField(
-            items: _stockItems,
-            value: selectedStock,
-            labelText: 'Cari & Pilih Bahan',
-            helperText: 'Taip nama bahan untuk cari cepat.',
-            onChanged: (value) {
-              setState(() {
-                item.stockItemId = value?.id;
-                if (value != null) {
-                  item.usageUnit = value.unit;
-                }
-              });
-              _calculateCosts();
-            },
+          // Stock Item Selection Button
+          OutlinedButton.icon(
+            onPressed: () => _showIngredientSelector(index, item),
+            icon: Icon(
+              selectedStock != null ? Icons.check_circle : Icons.add_circle_outline,
+              color: selectedStock != null ? AppColors.success : AppColors.primary,
+            ),
+            label: Text(
+              selectedStock != null ? selectedStock.name : 'Cari & Pilih Bahan',
+              style: TextStyle(
+                color: selectedStock != null ? AppColors.success : AppColors.primary,
+                fontWeight: selectedStock != null ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              side: BorderSide(
+                color: selectedStock != null ? AppColors.success : AppColors.primary,
+                width: 2,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
           ),
           
           const SizedBox(height: 12),
