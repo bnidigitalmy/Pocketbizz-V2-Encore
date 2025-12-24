@@ -17,6 +17,7 @@ import 'package:intl/intl.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Stock Management Page - List all stock items
 class StockPage extends StatefulWidget {
@@ -58,17 +59,24 @@ class _StockPageState extends State<StockPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _stockItems.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _stockItems.isNotEmpty;
+    final content = hasData ? TooltipContent.inventory : TooltipContent.inventoryEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipKeys.inventory,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.inventory
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.inventory : TooltipContent.inventoryEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -423,7 +431,9 @@ class _StockPageState extends State<StockPage> {
   Widget build(BuildContext context) {
     final lowStockCount = _stockItems.where((item) => item.isLowStock).length;
     
-    return Scaffold(
+    return SubscriptionGuard(
+      featureName: 'Stok',
+      child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Column(
@@ -605,6 +615,7 @@ class _StockPageState extends State<StockPage> {
               icon: const Icon(Icons.add),
               label: const Text('Tambah Item'),
             ),
+      ),
     );
   }
 

@@ -54,17 +54,24 @@ class _VendorsPageState extends State<VendorsPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _vendors.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _vendors.isNotEmpty;
+    final content = hasData ? TooltipContent.vendors : TooltipContent.vendorsEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipKeys.vendors,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.vendors
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.vendors : TooltipContent.vendorsEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,

@@ -6,6 +6,7 @@ import '../../../data/models/supplier.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Suppliers Page
 /// Manage suppliers (pembekal bahan/ingredients) for Purchase Orders
@@ -35,17 +36,24 @@ class _SuppliersPageState extends State<SuppliersPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _suppliers.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _suppliers.isNotEmpty;
+    final content = hasData ? TooltipContent.suppliers : TooltipContent.suppliersEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipKeys.suppliers,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.suppliers
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.suppliers : TooltipContent.suppliersEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -184,7 +192,9 @@ class _SuppliersPageState extends State<SuppliersPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return SubscriptionGuard(
+      featureName: 'Pembekal',
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Senarai Supplier'),
         actions: [
@@ -209,6 +219,7 @@ class _SuppliersPageState extends State<SuppliersPage> {
               icon: const Icon(Icons.add),
               label: const Text('Tambah Supplier'),
             ),
+      ),
     );
   }
 

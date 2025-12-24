@@ -17,6 +17,7 @@ import '../../../core/supabase/supabase_client.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Upgraded Shopping List Page
 /// Full-featured shopping cart with PO creation, print, and WhatsApp share
@@ -89,17 +90,24 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _cartItems.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _cartItems.isNotEmpty;
+    final content = hasData ? TooltipContent.shoppingList : TooltipContent.shoppingListEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipKeys.shoppingList,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.shoppingList
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.shoppingList : TooltipContent.shoppingListEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -783,7 +791,9 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
       return !inCartPending && isStillLowStock;
     }).toList();
 
-    return Scaffold(
+    return SubscriptionGuard(
+      featureName: 'Senarai Beli-belah',
+      child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Column(
@@ -1283,6 +1293,7 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
                 ],
               ),
             ),
+      ),
     );
   }
 
@@ -1944,6 +1955,6 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
             ),
           ],
         ),
-    );
+      );
   }
 }

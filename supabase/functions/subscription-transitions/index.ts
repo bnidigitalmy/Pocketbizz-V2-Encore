@@ -36,10 +36,11 @@ serve(async (req) => {
     const nowIso = now.toISOString();
 
     // Get all subscriptions that need transitions
+    // Include "trial" to handle trial expiry
     const { data: subscriptions, error: fetchError } = await supabase
       .from("subscriptions")
       .select("*")
-      .in("status", ["active", "grace", "pending_payment"]);
+      .in("status", ["trial", "active", "grace", "pending_payment"]);
 
     if (fetchError) {
       throw new Error(`Failed to fetch subscriptions: ${fetchError.message}`);
@@ -59,13 +60,30 @@ serve(async (req) => {
     let activated = 0;
     let movedToGrace = 0;
     let expired = 0;
+    let trialExpired = 0;
 
     for (const sub of subscriptions) {
       const status = (sub.status as string).toLowerCase();
-      const expiresAt = new Date(sub.expires_at as string);
+      const expiresAt = sub.expires_at ? new Date(sub.expires_at as string) : null;
+      const trialEndsAt = sub.trial_ends_at ? new Date(sub.trial_ends_at as string) : null;
       const startedAt = sub.started_at ? new Date(sub.started_at as string) : null;
       const graceUntil = sub.grace_until ? new Date(sub.grace_until as string) : null;
       const paymentStatus = sub.payment_status as string | null;
+
+      // 0. Handle trial expiry - Trial users go directly to expired (NO grace period)
+      if (status === "trial" && trialEndsAt && now > trialEndsAt) {
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: "expired",
+            updated_at: nowIso,
+          })
+          .eq("id", sub.id);
+
+        trialExpired++;
+        processed++;
+        continue;
+      }
 
       // 1. Activate pending_payment if payment completed and start date reached
       if (
@@ -106,8 +124,9 @@ serve(async (req) => {
         continue;
       }
 
-      // 2. Move active to grace if past expiry
-      if (status === "active" && now > expiresAt) {
+      // 2. Move active (paid subscription) to grace if past expiry
+      // Note: Only paid subscriptions get grace period, NOT trial users
+      if (status === "active" && expiresAt && now > expiresAt) {
         const newGraceUntil = graceUntil || new Date(expiresAt);
         newGraceUntil.setDate(newGraceUntil.getDate() + 7);
 
@@ -160,6 +179,7 @@ serve(async (req) => {
         activated,
         movedToGrace,
         expired,
+        trialExpired,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -19,6 +19,7 @@ import 'invoice_dialog.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Deliveries Page - Consignment System
 /// Manage deliveries to Consignees (vendors)
@@ -73,17 +74,24 @@ class _DeliveriesPageState extends State<DeliveriesPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _deliveries.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _deliveries.isNotEmpty;
+    final content = hasData ? TooltipContent.deliveries : TooltipContent.deliveriesEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipKeys.deliveries,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.deliveries
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.deliveries : TooltipContent.deliveriesEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -456,7 +464,9 @@ class _DeliveriesPageState extends State<DeliveriesPage> {
 
     final canPop = ModalRoute.of(context)?.canPop ?? false;
 
-    return Scaffold(
+    return SubscriptionGuard(
+      featureName: 'Penghantaran',
+      child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         leading: IconButton(
@@ -506,6 +516,7 @@ class _DeliveriesPageState extends State<DeliveriesPage> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Tambah Penghantaran'),
+      ),
       ),
     );
   }

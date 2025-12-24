@@ -15,6 +15,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Reports Page - Phase 1: Foundation
 /// Shows Profit/Loss, Top Products, Top Vendors, and Monthly Trends
@@ -70,17 +71,24 @@ class _ReportsPageState extends State<ReportsPage> with SingleTickerProviderStat
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _profitLoss != null || _topProducts.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _profitLoss != null || _topProducts.isNotEmpty;
+    final content = hasData ? TooltipContent.reports : TooltipContent.reportsEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipKeys.reports,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.reports
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.reports : TooltipContent.reportsEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -250,7 +258,9 @@ class _ReportsPageState extends State<ReportsPage> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return SubscriptionGuard(
+      featureName: 'Laporan',
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Laporan & Analitik'),
         actions: [
@@ -283,6 +293,7 @@ class _ReportsPageState extends State<ReportsPage> with SingleTickerProviderStat
           _buildVendorsTab(),
           _buildTrendsTab(),
         ],
+      ),
       ),
     );
   }

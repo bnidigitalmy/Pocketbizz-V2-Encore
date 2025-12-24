@@ -22,6 +22,7 @@ import '../../../core/services/document_storage_service.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 // Conditional import for web
 import 'dart:html' as html if (dart.library.html) 'dart:html';
@@ -83,17 +84,24 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _purchaseOrders.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _purchaseOrders.isNotEmpty;
+    final content = hasData ? TooltipContent.purchaseOrders : TooltipContent.purchaseOrdersEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipKeys.purchaseOrders,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.purchaseOrders
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.purchaseOrders : TooltipContent.purchaseOrdersEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -959,7 +967,9 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
     final stats = _calculateStats();
     final canPop = ModalRoute.of(context)?.canPop ?? false;
 
-    return Scaffold(
+    return SubscriptionGuard(
+      featureName: 'Pesanan Pembelian',
+      child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         leading: IconButton(
@@ -1127,6 +1137,7 @@ class _PurchaseOrdersPageState extends State<PurchaseOrdersPage> {
                 ],
               ),
             ),
+      ),
     );
   }
 

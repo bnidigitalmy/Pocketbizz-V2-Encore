@@ -15,6 +15,9 @@ import '../../feedback/presentation/submit_feedback_page.dart';
 import '../../feedback/presentation/my_feedback_page.dart';
 import '../../feedback/presentation/community_links_page.dart';
 import '../../feedback/presentation/admin/admin_feedback_page.dart';
+import '../../subscription/presentation/subscription_page.dart';
+import '../../subscription/services/subscription_service.dart';
+import '../../subscription/data/models/subscription.dart';
 import 'dashboard_page_optimized.dart';
 
 class HomePage extends StatefulWidget {
@@ -46,6 +49,33 @@ class _HomePageState extends State<HomePage> {
         });
       }
     });
+    
+    // Check subscription status and redirect expired users
+    _checkSubscriptionStatus();
+  }
+
+  /// Check subscription status and redirect expired users to subscription page
+  Future<void> _checkSubscriptionStatus() async {
+    try {
+      final subscription = await SubscriptionService().getCurrentSubscription();
+      
+      // If subscription is expired, redirect to subscription page
+      if (subscription != null && subscription.status == SubscriptionStatus.expired) {
+        // Wait for navigation to be ready
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const SubscriptionPage(),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // Ignore errors - allow user to continue
+      print('Error checking subscription status: $e');
+    }
   }
 
   /// Open Receipt Scan page

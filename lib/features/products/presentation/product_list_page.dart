@@ -12,6 +12,7 @@ import 'add_product_with_recipe_page.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 class ProductListPage extends StatefulWidget {
   const ProductListPage({super.key});
@@ -53,17 +54,24 @@ class _ProductListPageState extends State<ProductListPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    final hasData = _allProducts.isNotEmpty;
+    // Early return: Skip tooltip if subscription is expired
+    final isExpired = await TooltipHelper.isSubscriptionExpired();
+    if (isExpired) {
+      return; // Don't show tooltip for expired users
+    }
     
+    final hasData = _allProducts.isNotEmpty;
+    final content = hasData ? TooltipContent.products : TooltipContent.productsEmpty;
+    
+    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      hasData ? TooltipKeys.products : TooltipKeys.products,
+      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.products
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
-      final content = hasData ? TooltipContent.products : TooltipContent.productsEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -204,7 +212,9 @@ class _ProductListPageState extends State<ProductListPage> {
   Widget build(BuildContext context) {
     final canPop = ModalRoute.of(context)?.canPop ?? false;
 
-    return Scaffold(
+    return SubscriptionGuard(
+      featureName: 'Produk',
+      child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: _buildAppBar(canPop),
       body: _loading
@@ -244,6 +254,7 @@ class _ProductListPageState extends State<ProductListPage> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Tambah Produk'),
+      ),
       ),
     );
   }

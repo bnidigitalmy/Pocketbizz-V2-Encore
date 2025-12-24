@@ -14,6 +14,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/services/receipt_storage_service.dart';
 import '../../../data/repositories/expenses_repository_supabase.dart';
 import '../../../data/models/expense.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Parsed receipt data from OCR
 class ParsedReceipt {
@@ -670,12 +671,14 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _imageDataUrl == null ? Colors.black : AppColors.background,
-      appBar: AppBar(
-        title: const Text('Scan Resit'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+    return SubscriptionGuard(
+      featureName: 'Scan Resit',
+      child: Scaffold(
+        backgroundColor: _imageDataUrl == null ? Colors.black : AppColors.background,
+        appBar: AppBar(
+          title: const Text('Scan Resit'),
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
         actions: [
           if (_imageDataUrl != null)
             IconButton(
@@ -685,9 +688,10 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
             ),
         ],
       ),
-      body: _imageDataUrl == null
-          ? _buildLiveCameraView()
-          : _buildResultView(),
+        body: _imageDataUrl == null
+            ? _buildLiveCameraView()
+            : _buildResultView(),
+      ),
     );
   }
 
