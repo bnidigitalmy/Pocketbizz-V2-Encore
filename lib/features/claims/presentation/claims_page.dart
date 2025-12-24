@@ -79,24 +79,17 @@ class _ClaimsPageState extends State<ClaimsPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await TooltipHelper.isSubscriptionExpired();
-    if (isExpired) {
-      return; // Don't show tooltip for expired users
-    }
-    
     final hasData = _claims.isNotEmpty;
-    final content = hasData ? TooltipContent.claims : TooltipContent.claimsEmpty;
     
-    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.claims
+      TooltipKeys.claims,
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
+      final content = hasData ? TooltipContent.claims : TooltipContent.claimsEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,

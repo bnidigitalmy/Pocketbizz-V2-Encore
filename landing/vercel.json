@@ -5,6 +5,12 @@
   "devCommand": null,
   "installCommand": null,
   "framework": null,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/:path*",

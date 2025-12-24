@@ -17,9 +17,6 @@ import 'create_booking_page_enhanced.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
-import '../../subscription/widgets/subscription_guard.dart';
-import '../../subscription/services/subscription_service.dart';
-import '../../subscription/data/models/subscription.dart';
 
 /// Optimized Tempahan Page
 /// Full-featured tempahan management with PDF and WhatsApp sharing
@@ -50,24 +47,17 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await TooltipHelper.isSubscriptionExpired();
-    if (isExpired) {
-      return; // Don't show tooltip for expired users
-    }
-    
     final hasData = _bookings.isNotEmpty;
-    final content = hasData ? TooltipContent.bookings : TooltipContent.bookingsEmpty;
     
-    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.bookings
+      TooltipKeys.bookings,
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
+      final content = hasData ? TooltipContent.bookings : TooltipContent.bookingsEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -135,10 +125,8 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
   @override
   Widget build(BuildContext context) {
     final canPop = ModalRoute.of(context)?.canPop ?? false;
-
-    return SubscriptionGuard(
-      featureName: 'Tempahan',
-      child: Scaffold(
+    
+    return Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -218,7 +206,6 @@ class _BookingsPageOptimizedState extends State<BookingsPageOptimized> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Tempahan Baru'),
-      ),
       ),
     );
   }

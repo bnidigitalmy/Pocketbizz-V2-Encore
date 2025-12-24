@@ -11,7 +11,6 @@ import '../../../data/models/stock_item.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
-import '../../subscription/widgets/subscription_guard.dart';
 
 /// Enhanced Recipe Builder Page
 /// User-friendly recipe management with search, edit, and stock info
@@ -56,24 +55,17 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await TooltipHelper.isSubscriptionExpired();
-    if (isExpired) {
-      return; // Don't show tooltip for expired users
-    }
-    
     final hasData = _recipeItems.isNotEmpty;
-    final content = hasData ? TooltipContent.recipes : TooltipContent.recipesEmpty;
     
-    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.recipes
+      TooltipKeys.recipes,
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
+      final content = hasData ? TooltipContent.recipes : TooltipContent.recipesEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -806,9 +798,7 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SubscriptionGuard(
-      featureName: 'Resipi',
-      child: Scaffold(
+    return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Column(
@@ -856,7 +846,6 @@ class _RecipeBuilderPageState extends State<RecipeBuilderPage> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Tambah Bahan'),
-      ),
       ),
     );
   }

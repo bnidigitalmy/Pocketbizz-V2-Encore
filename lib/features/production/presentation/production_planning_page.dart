@@ -16,7 +16,6 @@ import 'widgets/bulk_production_planning_dialog.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
-import '../../subscription/widgets/subscription_guard.dart';
 
 /// Production Planning Page - 3-Step Production Planning with Preview
 class ProductionPlanningPage extends StatefulWidget {
@@ -54,24 +53,17 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await TooltipHelper.isSubscriptionExpired();
-    if (isExpired) {
-      return; // Don't show tooltip for expired users
-    }
-    
     final hasData = _batches.isNotEmpty;
-    final content = hasData ? TooltipContent.production : TooltipContent.productionEmpty;
     
-    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.production
+      TooltipKeys.production,
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
+      final content = hasData ? TooltipContent.production : TooltipContent.productionEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -215,9 +207,7 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SubscriptionGuard(
-      featureName: 'Perancangan Pengeluaran',
-      child: Scaffold(
+    return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Column(
@@ -288,7 +278,6 @@ class _ProductionPlanningPageState extends State<ProductionPlanningPage> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Rancang/Bulk'),
-      ),
       ),
     );
   }

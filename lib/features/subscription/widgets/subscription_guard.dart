@@ -41,15 +41,9 @@ class SubscriptionGuard extends StatelessWidget {
   }
 
   bool _checkAccess(Subscription? subscription) {
-    // If no subscription, block access
     if (subscription == null) return false;
 
-    // Expired users: NO ACCESS (must upgrade)
-    if (subscription.status == SubscriptionStatus.expired) {
-      return false;
-    }
-
-    // Use isActive which includes grace period (for paid subscriptions)
+    // Use isActive which includes grace period
     if (subscription.isActive) {
       return true;
     }
@@ -64,15 +58,13 @@ class SubscriptionGuard extends StatelessWidget {
 
   Widget _buildUpgradePrompt(BuildContext context, Subscription? subscription) {
     final isTrial = subscription?.isOnTrial ?? false;
-    final isExpired = subscription?.status == SubscriptionStatus.expired;
     final daysRemaining = subscription?.daysRemaining ?? 0;
 
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+    return Container(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
           Icon(
             Icons.workspace_premium,
             size: 64,
@@ -80,11 +72,9 @@ class SubscriptionGuard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            isExpired
-                ? 'Langganan Anda Telah Tamat'
-                : isTrial
-                    ? 'Trial Hampir Tamat'
-                    : 'Naik Taraf ke PocketBizz Pro',
+            isTrial
+                ? 'Trial Hampir Tamat'
+                : 'Upgrade ke PocketBizz Pro',
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -92,16 +82,7 @@ class SubscriptionGuard extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
-          if (isExpired)
-            Text(
-              'Langganan anda telah tamat. Sila langgan semula untuk terus menggunakan PocketBizz.',
-              style: const TextStyle(
-                fontSize: 16,
-                color: AppColors.textSecondary,
-              ),
-              textAlign: TextAlign.center,
-            )
-          else if (isTrial)
+          if (isTrial)
             Text(
               'Trial percuma anda akan tamat dalam $daysRemaining hari.',
               style: const TextStyle(
@@ -112,7 +93,7 @@ class SubscriptionGuard extends StatelessWidget {
             )
           else
             Text(
-              'Ciri ini memerlukan langganan aktif.',
+              'Fitur ini memerlukan langganan aktif.',
               style: const TextStyle(
                 fontSize: 16,
                 color: AppColors.textSecondary,
@@ -122,13 +103,12 @@ class SubscriptionGuard extends StatelessWidget {
           if (featureName != null) ...[
             const SizedBox(height: 8),
             Text(
-              'Ciri: $featureName',
+              'Fitur: $featureName',
               style: const TextStyle(
                 fontSize: 14,
                 color: AppColors.textSecondary,
                 fontStyle: FontStyle.italic,
               ),
-              textAlign: TextAlign.center,
             ),
           ],
           const SizedBox(height: 32),
@@ -158,18 +138,10 @@ class SubscriptionGuard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           TextButton(
-            onPressed: () {
-              // Navigate to home instead of pop to avoid blank page
-              if (Navigator.canPop(context)) {
-                Navigator.pop(context);
-              } else {
-                Navigator.of(context).pushReplacementNamed('/');
-              }
-            },
+            onPressed: () => Navigator.pop(context),
             child: const Text('Kembali'),
           ),
         ],
-        ),
       ),
     );
   }

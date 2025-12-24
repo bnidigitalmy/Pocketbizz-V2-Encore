@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../services/tooltip_service.dart';
-import '../../../subscription/services/subscription_service.dart';
-import '../../../subscription/data/models/subscription.dart';
 
 /// Contextual tooltip widget untuk guide users
 class ContextualTooltip extends StatelessWidget {
@@ -148,34 +146,12 @@ class ContextualTooltip extends StatelessWidget {
 
 /// Helper untuk show tooltip dengan trigger condition
 class TooltipHelper {
-  /// Check if subscription is expired - skip tooltip if expired
-  static Future<bool> isSubscriptionExpired() async {
-    try {
-      final subscriptionService = SubscriptionService();
-      final subscription = await subscriptionService.getCurrentSubscription();
-      // If no subscription or status is expired, don't show tooltip
-      if (subscription == null) {
-        return true; // No subscription = expired/blocked
-      }
-      return subscription.status == SubscriptionStatus.expired;
-    } catch (e) {
-      // If subscription check fails, assume expired to block tooltip (safer)
-      return true;
-    }
-  }
-  
   static Future<bool> shouldShowTooltip(
     BuildContext context,
     String moduleKey, {
     bool checkEmptyState = false,
     bool Function()? emptyStateChecker,
   }) async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await isSubscriptionExpired();
-    if (isExpired) {
-      return false; // Don't show tooltip for expired users
-    }
-    
     final tooltipService = TooltipService();
     
     // Check kalau dah pernah tengok

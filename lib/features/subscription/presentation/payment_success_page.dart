@@ -44,20 +44,9 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
   void initState() {
     super.initState();
     _parseQuery();
-    // Only start timers and polling if payment is not failed
-    // If failed, redirect immediately without waiting
-    if (_status != _PaymentStatus.failed) {
-      _startElapsedTimer();
-      _setupRealtimeSubscription();
-      _loadInitialData();
-    } else {
-      // Payment failed - redirect immediately after a short delay to show error message
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          _navigateTo('/subscription');
-        }
-      });
-    }
+    _startElapsedTimer();
+    _setupRealtimeSubscription();
+    _loadInitialData();
   }
 
   /// Setup Supabase realtime subscription for payment status updates
@@ -199,14 +188,6 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
 
   /// Load initial subscription and payment data
   Future<void> _loadInitialData() async {
-    // Don't load if payment is already marked as failed
-    if (_status == _PaymentStatus.failed) {
-      setState(() {
-        _isLoading = false;
-      });
-      return;
-    }
-
     try {
       // Load current subscription
       final sub = await _subscriptionService.getCurrentSubscription();
@@ -217,16 +198,13 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
             ? sub
             : null;
         _isLoading = false;
-        // Don't override failed status
-        if (_status != _PaymentStatus.failed) {
-          _status = _active != null ? _PaymentStatus.success : _PaymentStatus.processing;
-        }
+        _status = _active != null ? _PaymentStatus.success : _PaymentStatus.processing;
       });
 
       if (_active != null) {
         _startCountdown();
       } else if (_orderNumber != null) {
-        // Load payment details to get payment method and check status
+        // Load payment details to get payment method
         _loadPaymentDetails();
       }
     } catch (e) {
@@ -236,9 +214,7 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
         setState(() {
           _unauthorized = true;
           _isLoading = false;
-          if (_status != _PaymentStatus.failed) {
-            _status = _PaymentStatus.pending;
-          }
+          _status = _PaymentStatus.pending;
         });
       }
     }
@@ -402,23 +378,7 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
 
   void _navigateTo(String route) {
     if (!mounted) return;
-    // For subscription page, use pushReplacementNamed to allow back navigation
-    // and trigger refresh in subscription page
-    if (route == '/subscription') {
-      // Use pushReplacementNamed instead of pushNamedAndRemoveUntil
-      // This allows subscription page to detect it's coming from payment success
-      Navigator.of(context).pushReplacementNamed(route);
-      // Trigger refresh after navigation completes
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          // The subscription page will check for refresh in didChangeDependencies
-          // We can also use a global flag or event bus, but for simplicity,
-          // we'll rely on the page detecting it needs to refresh
-        }
-      });
-    } else {
-      Navigator.of(context).pushNamedAndRemoveUntil(route, (route) => false);
-    }
+    Navigator.of(context).pushNamedAndRemoveUntil(route, (route) => false);
   }
 
   @override

@@ -7,7 +7,6 @@ import '../../../data/repositories/planner_tasks_repository_supabase.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
-import '../../subscription/widgets/subscription_guard.dart';
 
 class PlannerPage extends StatefulWidget {
   const PlannerPage({super.key});
@@ -72,24 +71,17 @@ class _PlannerPageState extends State<PlannerPage> with SingleTickerProviderStat
   }
 
   Future<void> _checkAndShowTooltip() async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await TooltipHelper.isSubscriptionExpired();
-    if (isExpired) {
-      return; // Don't show tooltip for expired users
-    }
-    
     final hasData = _today.isNotEmpty || _upcoming.isNotEmpty || _overdue.isNotEmpty;
-    final content = hasData ? TooltipContent.planner : TooltipContent.plannerEmpty;
     
-    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.planner
+      TooltipKeys.planner,
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
+      final content = hasData ? TooltipContent.planner : TooltipContent.plannerEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -227,9 +219,7 @@ class _PlannerPageState extends State<PlannerPage> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    return SubscriptionGuard(
-      featureName: 'Perancang',
-      child: Scaffold(
+    return Scaffold(
       appBar: AppBar(
         title: const Text('Planner'),
         actions: [
@@ -260,7 +250,6 @@ class _PlannerPageState extends State<PlannerPage> with SingleTickerProviderStat
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_task),
         label: const Text('Tambah Tugasan'),
-      ),
       ),
     );
   }

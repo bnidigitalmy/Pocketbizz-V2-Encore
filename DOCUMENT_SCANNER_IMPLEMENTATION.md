@@ -339,5 +339,3 @@ Sekarang ReceiptScanPage support:
 
 
 
-
-

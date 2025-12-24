@@ -85,7 +85,7 @@ class SubscriptionRepositorySupabase {
             )
           ''')
           .eq('user_id', userId)
-          .inFilter('status', ['trial', 'active', 'grace', 'expired'])
+          .inFilter('status', ['trial', 'active'])
           .order('created_at', ascending: false)
           .limit(1)
           .maybeSingle();

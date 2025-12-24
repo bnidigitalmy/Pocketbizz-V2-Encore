@@ -30,7 +30,6 @@ import '../../announcements/presentation/notifications_page.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
-import '../../subscription/widgets/subscription_guard.dart';
 
 /// Optimized Dashboard for SME Malaysia
 /// Concept: "Urus bisnes dari poket tanpa stress"
@@ -80,16 +79,9 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await TooltipHelper.isSubscriptionExpired();
-    if (isExpired) {
-      return; // Don't show tooltip for expired users
-    }
-    
-    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      TooltipContent.dashboard.moduleKey, // Use content.moduleKey instead of TooltipKeys.dashboard
+      TooltipKeys.dashboard,
     );
     
     if (shouldShow && mounted) {
@@ -344,9 +336,7 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
   Widget build(BuildContext context) {
     final user = supabase.auth.currentUser;
 
-    return SubscriptionGuard(
-      featureName: 'Dashboard',
-      child: Scaffold(
+    return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         elevation: 0,
@@ -502,7 +492,6 @@ class _DashboardPageOptimizedState extends State<DashboardPageOptimized> {
                 ],
               ),
             ),
-      ),
     );
   }
 

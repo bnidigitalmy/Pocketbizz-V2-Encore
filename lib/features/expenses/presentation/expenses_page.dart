@@ -11,7 +11,6 @@ import 'receipt_scan_page.dart';
 import '../../onboarding/presentation/widgets/contextual_tooltip.dart';
 import '../../onboarding/data/tooltip_content.dart';
 import '../../onboarding/services/tooltip_service.dart';
-import '../../subscription/widgets/subscription_guard.dart';
 
 /// Expenses Page - Friendly UX for busy non-technical users.
 ///
@@ -65,24 +64,17 @@ class _ExpensesPageState extends State<ExpensesPage> {
   }
 
   Future<void> _checkAndShowTooltip() async {
-    // Early return: Skip tooltip if subscription is expired
-    final isExpired = await TooltipHelper.isSubscriptionExpired();
-    if (isExpired) {
-      return; // Don't show tooltip for expired users
-    }
-    
     final hasData = _expenses.isNotEmpty;
-    final content = hasData ? TooltipContent.expenses : TooltipContent.expensesEmpty;
     
-    // Use the same moduleKey for both check and mark
     final shouldShow = await TooltipHelper.shouldShowTooltip(
       context,
-      content.moduleKey, // Use content.moduleKey instead of TooltipKeys.expenses
+      TooltipKeys.expenses,
       checkEmptyState: !hasData,
       emptyStateChecker: () => !hasData,
     );
     
     if (shouldShow && mounted) {
+      final content = hasData ? TooltipContent.expenses : TooltipContent.expensesEmpty;
       await TooltipHelper.showTooltip(
         context,
         content.moduleKey,
@@ -424,9 +416,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SubscriptionGuard(
-      featureName: 'Perbelanjaan',
-      child: Scaffold(
+    return Scaffold(
       backgroundColor: AppColors.background,
       appBar: _buildAppBar(),
       body: _isLoading
@@ -454,7 +444,6 @@ class _ExpensesPageState extends State<ExpensesPage> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Tambah Perbelanjaan'),
-      ),
       ),
     );
   }

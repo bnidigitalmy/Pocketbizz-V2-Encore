@@ -45,7 +45,6 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   bool _isEarlyAdopter = false;
   bool _loading = true;
   bool _processingPayment = false;
-  bool _hasCheckedQueryParams = false;
 
   @override
   void initState() {
@@ -54,33 +53,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Refresh data when page becomes visible (e.g., after payment success)
-    // This ensures subscription status is up-to-date after payment
-    // Only refresh once per navigation to avoid excessive API calls
-    if (!_hasCheckedQueryParams) {
-      _hasCheckedQueryParams = true;
-      // Delay to ensure page is fully built and give backend time to process payment
-      // This is especially important after payment success when subscription might have just been activated
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          // Add a small delay to allow backend to process payment confirmation
-          Future.delayed(const Duration(milliseconds: 1000), () {
-            if (mounted) {
-              _loadData();
-            }
-          });
-        }
-      });
-    }
-  }
-
-  @override
   void dispose() {
     _paymentChannel?.unsubscribe();
-    // Reset flag so that if user navigates back, data will refresh again
-    _hasCheckedQueryParams = false;
     super.dispose();
   }
 
@@ -272,13 +246,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () {
-              if (Navigator.canPop(context)) {
-                Navigator.of(context).pop();
-              } else {
-                Navigator.of(context).pushReplacementNamed('/home');
-              }
-            },
+            onPressed: () => Navigator.of(context).pop(),
           ),
           title: const Text('Langganan'),
           backgroundColor: AppColors.primary,
@@ -291,13 +259,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            if (Navigator.canPop(context)) {
-              Navigator.of(context).pop();
-            } else {
-              Navigator.of(context).pushReplacementNamed('/home');
-            }
-          },
+          onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text('Langganan'),
         backgroundColor: AppColors.primary,
@@ -1091,13 +1053,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                     children: [
                       Expanded(
                         child: Text(
-                          supabase.auth.currentUser?.email ?? 'Tiada email',
+                          supabase.auth.currentUser?.email ?? '',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: (supabase.auth.currentUser?.email ?? '').isEmpty
-                                ? Colors.grey.shade600
-                                : Colors.amber.shade900,
+                            color: Colors.amber.shade900,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
