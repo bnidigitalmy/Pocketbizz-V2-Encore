@@ -271,6 +271,8 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
                         itemBuilder: (context, index) {
                           final product = widget.products[index];
                           final hasPrice = product.salePrice > 0;
+                          final stock = _productStockCache[product.id] ?? 0.0;
+                          final isAvailable = stock > 0;
 
                           return Card(
                             elevation: 2,
@@ -371,7 +373,9 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
                                             ),
                                           ),
                                           const SizedBox(height: 8),
-                                          Row(
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 4,
                                             children: [
                                               Container(
                                                 padding:
@@ -393,8 +397,47 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
                                                   ),
                                                 ),
                                               ),
+                                              // Stock Badge
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 10,
+                                                  vertical: 6,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: isAvailable
+                                                      ? Colors.green[50]
+                                                      : Colors.red[50],
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      isAvailable
+                                                          ? Icons.inventory_2
+                                                          : Icons.inventory_2_outlined,
+                                                      size: 14,
+                                                      color: isAvailable
+                                                          ? Colors.green[700]
+                                                          : Colors.red[700],
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      'Stok: ${stock.toStringAsFixed(1)}',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.w500,
+                                                        color: isAvailable
+                                                            ? Colors.green[700]
+                                                            : Colors.red[700],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
                                               if (!hasPrice) ...[
-                                                const SizedBox(width: 8),
                                                 Container(
                                                   padding:
                                                       const EdgeInsets.symmetric(
