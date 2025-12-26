@@ -3,16 +3,16 @@ import '../../core/utils/rate_limit_mixin.dart';
 import '../../core/utils/rate_limiter.dart';
 
 /**
- * 🔒 POCKETBIZZ CORE ENGINE (STABLE)
- * ❌ DO NOT MODIFY
- * ❌ DO NOT REFACTOR
- * ❌ DO NOT OPTIMIZE
- * This logic is production-tested.
- * New features must EXTEND, not change.
- * 
- * Balance calculation: totalAmount - depositAmount - totalPaid
- * This formula is used consistently across UI, repository, and PDF generation.
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
  */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
+// 
+// Balance calculation: totalAmount - depositAmount - totalPaid
+// This formula is used consistently across UI, repository, and PDF generation.
 /// Booking model
 class Booking {
   final String id;

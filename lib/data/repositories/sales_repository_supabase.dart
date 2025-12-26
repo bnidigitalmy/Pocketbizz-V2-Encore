@@ -5,13 +5,13 @@ import 'production_repository_supabase.dart';
 import '../../features/subscription/data/repositories/subscription_repository_supabase.dart';
 
 /**
- * 🔒 POCKETBIZZ CORE ENGINE (STABLE)
- * ❌ DO NOT MODIFY
- * ❌ DO NOT REFACTOR
- * ❌ DO NOT OPTIMIZE
- * This logic is production-tested.
- * New features must EXTEND, not change.
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
  */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
 /// Sale model
 class Sale {
   final String id;
@@ -103,13 +103,13 @@ class SaleItem {
 }
 
 /**
- * 🔒 POCKETBIZZ CORE ENGINE (STABLE)
- * ❌ DO NOT MODIFY
- * ❌ DO NOT REFACTOR
- * ❌ DO NOT OPTIMIZE
- * This logic is production-tested.
- * New features must EXTEND, not change.
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
  */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
 /// Sales repository using Supabase with rate limiting
 class SalesRepositorySupabase with RateLimitMixin {
   /// Create a new sale with rate limiting

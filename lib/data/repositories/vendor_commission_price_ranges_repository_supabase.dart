@@ -1,3 +1,12 @@
+/**
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
+ */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
+
 import '../../core/supabase/supabase_client.dart';
 import '../models/vendor_commission_price_range.dart';
 

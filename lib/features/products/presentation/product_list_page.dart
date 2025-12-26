@@ -1,17 +1,17 @@
 /**
- * 🔒 POCKETBIZZ CORE ENGINE (STABLE)
- * ❌ DO NOT MODIFY
- * ❌ DO NOT REFACTOR
- * ❌ DO NOT OPTIMIZE
- * This logic is production-tested.
- * New features must EXTEND, not change.
- * 
- * Product List Page - Cost Display Logic
- * - Uses costPerUnit (includes packaging) for accurate cost display
- * - Fallback to costPrice if costPerUnit is null
- * - Profit calculation uses costPerUnit for consistency
- * - Cost display matches recipe page (with packaging difference clarified)
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
  */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
+// 
+// Product List Page - Cost Display Logic
+// - Uses costPerUnit (includes packaging) for accurate cost display
+// - Fallback to costPrice if costPerUnit is null
+// - Profit calculation uses costPerUnit for consistency
+// - Cost display matches recipe page (with packaging difference clarified)
 
 import 'dart:async';
 import 'package:flutter/material.dart';

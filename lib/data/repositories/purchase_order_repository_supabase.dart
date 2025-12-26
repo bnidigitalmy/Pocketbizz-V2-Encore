@@ -1,3 +1,12 @@
+/**
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
+ */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/purchase_order.dart';

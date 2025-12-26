@@ -1,3 +1,12 @@
+/**
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
+ */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
+
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:flutter/material.dart';

@@ -8,13 +8,13 @@ import '../../../data/repositories/business_profile_repository_supabase.dart';
 import '../../../data/models/business_profile.dart';
 
 /**
- * 🔒 POCKETBIZZ CORE ENGINE (STABLE)
- * ❌ DO NOT MODIFY
- * ❌ DO NOT REFACTOR
- * ❌ DO NOT OPTIMIZE
- * This logic is production-tested.
- * New features must EXTEND, not change.
+ * 🔒 STABLE CORE MODULE – DO NOT MODIFY
+ * This file is production-tested.
+ * Any changes must be isolated via extension or wrapper.
  */
+// ❌ AI WARNING:
+// DO NOT refactor, rename, optimize or restructure this logic.
+// Only READ-ONLY reference allowed.
 /// Sales Page - Enhanced UI with summary cards and channel filters
 class SalesPage extends StatefulWidget {
   const SalesPage({super.key});
