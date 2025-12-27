@@ -210,7 +210,31 @@ class Subscription {
   }
 
   /// Check if subscription is active (trial or paid, but not paused)
-  bool get isActive => (status == SubscriptionStatus.trial || status == SubscriptionStatus.active || status == SubscriptionStatus.grace) && !isPaused;
+  bool get isActive {
+    if (isPaused) return false;
+    final now = DateTime.now();
+
+    // Trial is active only until trial_ends_at (fallback to expires_at if needed)
+    if (status == SubscriptionStatus.trial) {
+      final end = trialEndsAt ?? expiresAt;
+      return end.isAfter(now);
+    }
+
+    // Active is valid until expires_at. If already past expiry but still within grace_until,
+    // keep access (covers delayed cron transitions where status may still be "active").
+    if (status == SubscriptionStatus.active) {
+      if (expiresAt.isAfter(now)) return true;
+      if (graceUntil != null && graceUntil!.isAfter(now)) return true;
+      return false;
+    }
+
+    // Grace is active until grace_until
+    if (status == SubscriptionStatus.grace) {
+      return graceUntil != null && graceUntil!.isAfter(now);
+    }
+
+    return false;
+  }
 
   /// Check if on trial
   bool get isOnTrial => status == SubscriptionStatus.trial;
@@ -219,10 +243,12 @@ class Subscription {
   int get daysRemaining {
     final now = DateTime.now();
     final endDate = isOnTrial
-        ? trialEndsAt
-        : status == SubscriptionStatus.grace
+        ? (trialEndsAt ?? expiresAt)
+        : (graceUntil != null && graceUntil!.isAfter(expiresAt) && now.isAfter(expiresAt))
             ? graceUntil
-            : expiresAt;
+            : status == SubscriptionStatus.grace
+                ? graceUntil
+                : expiresAt;
     if (endDate == null) return 0;
     final diff = endDate.difference(now).inDays;
     return diff > 0 ? diff : 0;

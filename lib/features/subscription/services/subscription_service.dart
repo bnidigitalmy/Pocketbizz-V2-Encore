@@ -13,24 +13,64 @@ import '../../../core/supabase/supabase_client.dart';
 /// Business logic for subscription management
 class SubscriptionService {
   final SubscriptionRepositorySupabase _repo = SubscriptionRepositorySupabase();
-  static const _bclFormUrls = {
-    1: 'https://bnidigital.bcl.my/form/1-bulan',
-    3: 'https://bnidigital.bcl.my/form/3-bulan',
-    6: 'https://bnidigital.bcl.my/form/6-bulan',
-    12: 'https://bnidigital.bcl.my/form/12-bulan',
+  // BCL.my payment forms (must match the exact charged totals)
+  // Normal price (RM39/bulan): np-*
+  static const _bclFormUrlsNormal = {
+    1: 'https://bnidigital.bcl.my/form/np-1-bulan',
+    3: 'https://bnidigital.bcl.my/form/np-3-bulan',
+    6: 'https://bnidigital.bcl.my/form/np-6-bulan',
+    12: 'https://bnidigital.bcl.my/form/np-12-bulan',
   };
+
+  // Early adopter (RM29/bulan): ea-*
+  static const _bclFormUrlsEarlyAdopter = {
+    1: 'https://bnidigital.bcl.my/form/ea-1-bulan',
+    3: 'https://bnidigital.bcl.my/form/ea-3-bulan',
+    6: 'https://bnidigital.bcl.my/form/ea-6-bulan',
+    12: 'https://bnidigital.bcl.my/form/ea-12-bulan',
+  };
+
+  static String? _bclUrlForDuration(int durationMonths, {required bool isEarlyAdopter}) {
+    return (isEarlyAdopter ? _bclFormUrlsEarlyAdopter : _bclFormUrlsNormal)[durationMonths];
+  }
+
+  /// Open BCL.my payment form with an existing order id (no DB writes).
+  /// Used for pending_payment flows ("Teruskan Pembayaran") so users don't create multiple pending sessions.
+  Future<void> openBclPaymentForm({
+    required int durationMonths,
+    required String orderId,
+    bool? isEarlyAdopter,
+  }) async {
+    final early = isEarlyAdopter ?? await _repo.isEarlyAdopter();
+    final url = _bclUrlForDuration(durationMonths, isEarlyAdopter: early);
+    if (url == null) {
+      throw Exception('Invalid duration: $durationMonths');
+    }
+    final uri = Uri.parse(url).replace(queryParameters: {
+      ...Uri.parse(url).queryParameters,
+      'order_id': orderId,
+    });
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw Exception('Could not launch payment URL');
+    }
+  }
 
   /// Initialize trial for new user
   /// Called automatically on user registration
   Future<Subscription> initializeTrial() async {
     try {
-      // Check if user is early adopter (first 100 users)
+      // Prefer DB-side ensure to avoid client/RLS quirks.
+      // This will create a 7-day trial if eligible, or return existing active/trial/grace.
+      final ensured = await _repo.ensureTrialSubscription();
+      if (ensured != null) return ensured;
+
+      // Fallback (older DBs): client-side flow.
       final earlyAdopterCount = await _repo.getEarlyAdopterCount();
       if (earlyAdopterCount < 100) {
         await _repo.registerEarlyAdopter();
       }
-
-      // Start trial
       return await _repo.startTrial();
     } catch (e) {
       throw Exception('Failed to initialize trial: $e');
@@ -104,7 +144,7 @@ class SubscriptionService {
     }
 
     // Default: BCL.my
-    final url = _bclFormUrls[durationMonths];
+    final url = _bclUrlForDuration(durationMonths, isEarlyAdopter: isEarlyAdopter);
     if (url == null) {
       throw Exception('Invalid duration: $durationMonths');
     }
@@ -195,9 +235,13 @@ class SubscriptionService {
       payment: payment,
       paymentGateway: paymentGateway,
     );
-
-    final url = _paymentUrlForDuration(result.durationMonths, result.orderId);
-    final uri = Uri.parse(url);
+    final early = await _repo.isEarlyAdopter();
+    final baseUrl = _bclUrlForDuration(result.durationMonths, isEarlyAdopter: early);
+    if (baseUrl == null) throw Exception('Invalid duration: ${result.durationMonths}');
+    final uri = Uri.parse(baseUrl).replace(queryParameters: {
+      ...Uri.parse(baseUrl).queryParameters,
+      'order_id': result.orderId,
+    });
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
@@ -205,17 +249,7 @@ class SubscriptionService {
     }
   }
 
-  String _paymentUrlForDuration(int durationMonths, String orderId) {
-    final baseUrl = _bclFormUrls[durationMonths];
-    if (baseUrl == null) {
-      throw Exception('Invalid duration: $durationMonths');
-    }
-    final uri = Uri.parse(baseUrl).replace(queryParameters: {
-      ...Uri.parse(baseUrl).queryParameters,
-      'order_id': orderId,
-    });
-    return uri.toString();
-  }
+  // _paymentUrlForDuration removed; all BCL URLs must use correct (np vs ea) base form.
 
   /// Generate payment URL for proration with dynamic amount
   /// Since BCL.my forms don't accept amount parameter, we need to:
@@ -254,7 +288,9 @@ class SubscriptionService {
     
     // Check if we have a generic payment form URL
     // If not, use closest duration form
-    final baseUrl = _bclFormUrls[durationMonths] ?? _bclFormUrls[12]!;
+    final early = await _repo.isEarlyAdopter();
+    final baseUrl = _bclUrlForDuration(durationMonths, isEarlyAdopter: early) ??
+        _bclUrlForDuration(12, isEarlyAdopter: early)!;
     
     final uri = Uri.parse(baseUrl).replace(queryParameters: {
       ...Uri.parse(baseUrl).queryParameters,

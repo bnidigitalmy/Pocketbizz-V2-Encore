@@ -540,8 +540,64 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
             const SizedBox(height: 8),
 
-            // Progress Bar
-            if (subscription != null) ...[
+            // Pending Payment: clearer copy + continue payment CTA (avoid confusing "days remaining")
+            if (subscription != null && subscription.status == SubscriptionStatus.pendingPayment) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.warning.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Menunggu bayaran',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Langganan belum aktif lagi. Sila lengkapkan pembayaran melalui BCL.my. Akaun akan aktif serta-merta selepas bayaran berjaya.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.3),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: subscription.paymentReference == null
+                                ? null
+                                : () async {
+                                    try {
+                                      await _subscriptionService.openBclPaymentForm(
+                                        durationMonths: subscription.durationMonths,
+                                        orderId: subscription.paymentReference!,
+                                        isEarlyAdopter: subscription.isEarlyAdopter,
+                                      );
+                                    } catch (e) {
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Gagal buka pembayaran: $e')),
+                                      );
+                                    }
+                                  },
+                            child: const Text('Teruskan Pembayaran'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        TextButton(
+                          onPressed: _loadData,
+                          child: const Text('Refresh'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ]
+            // Progress Bar (Active/Trial/Grace)
+            else if (subscription != null) ...[
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -800,21 +856,35 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   }
 
   Widget _buildPackageSelection() {
-    final isExtending = _currentSubscription != null && 
-                        (_currentSubscription!.status == SubscriptionStatus.active ||
-                         _currentSubscription!.status == SubscriptionStatus.grace);
+    final hasPendingPayment = _currentSubscription?.status == SubscriptionStatus.pendingPayment;
+    final isExtending = !hasPendingPayment &&
+        _currentSubscription != null &&
+        (_currentSubscription!.status == SubscriptionStatus.active ||
+            _currentSubscription!.status == SubscriptionStatus.grace);
     final remainingDays = _currentSubscription?.daysRemaining ?? 0;
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          isExtending ? 'Tambah Tempoh Langganan' : 'Pilih Pakej Langganan',
+          hasPendingPayment
+              ? 'Selesaikan Pembayaran'
+              : isExtending
+                  ? 'Tambah Tempoh Langganan'
+                  : 'Pilih Pakej Langganan',
           style: const TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
         ),
+        if (hasPendingPayment) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Anda ada pembayaran belum selesai. Tekan "Teruskan Pembayaran" pada kad atas untuk sambung.',
+            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (isExtending && remainingDays > 0 && _currentSubscription != null) ...[
           const SizedBox(height: 8),
           Builder(
@@ -1112,16 +1182,18 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     final price = _isEarlyAdopter ? plan.getPriceForEarlyAdopter() : plan.totalPrice;
     final savingsText = plan.getSavingsText();
     final pricePerMonth = price / plan.durationMonths;
-    final canUpgrade = _currentSubscription == null || 
-                       _currentSubscription!.isOnTrial || 
-                       _currentSubscription!.status == SubscriptionStatus.expired;
+    final hasPendingPayment = _currentSubscription?.status == SubscriptionStatus.pendingPayment;
+    final canUpgrade = !hasPendingPayment &&
+        (_currentSubscription == null ||
+            _currentSubscription!.isOnTrial ||
+            _currentSubscription!.status == SubscriptionStatus.expired);
     final isExtending = _currentSubscription != null && 
                         (_currentSubscription!.status == SubscriptionStatus.active ||
                          _currentSubscription!.status == SubscriptionStatus.grace);
     // Allow extend untuk semua plans (kecuali current plan) kalau subscription active/grace
     final canExtend = isExtending && !isCurrentPlan;
     // Untuk extend, semua plan boleh dipilih (kecuali current)
-    final canSelectPlan = canUpgrade || (isExtending && !isCurrentPlan);
+    final canSelectPlan = !hasPendingPayment && (canUpgrade || (isExtending && !isCurrentPlan));
     final isPopular = plan.durationMonths == 6;
     
     // Enhanced styling for current plan

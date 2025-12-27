@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../data/models/subscription.dart';
 import '../services/subscription_service.dart';
+import '../widgets/subscription_success_message.dart';
 
 enum _PaymentStatus { processing, success, pending, failed }
 
@@ -151,6 +152,11 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
           _status = _PaymentStatus.success;
         });
 
+        // PHASE: Subscriber Expired System - Show success message
+        if (mounted) {
+          SubscriptionSuccessMessage.show(context);
+        }
+
         // Cancel polling and start countdown
         _pollTimer?.cancel();
         _startCountdown();
@@ -202,6 +208,10 @@ class _PaymentSuccessPageState extends State<PaymentSuccessPage> {
       });
 
       if (_active != null) {
+        // PHASE: Subscriber Expired System - Show success message
+        if (mounted) {
+          SubscriptionSuccessMessage.show(context);
+        }
         _startCountdown();
       } else if (_orderNumber != null) {
         // Load payment details to get payment method

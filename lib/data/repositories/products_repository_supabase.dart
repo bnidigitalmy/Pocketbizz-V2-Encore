@@ -12,6 +12,7 @@ import '../../core/utils/rate_limit_mixin.dart';
 import '../../core/utils/rate_limiter.dart';
 import '../models/product.dart';
 import '../../features/subscription/data/repositories/subscription_repository_supabase.dart';
+import '../../features/subscription/exceptions/subscription_limit_exception.dart';
 
 /// Products repository using Supabase directly with rate limiting
 class ProductsRepositorySupabase with RateLimitMixin {
@@ -25,13 +26,15 @@ class ProductsRepositorySupabase with RateLimitMixin {
           throw Exception('User not authenticated');
         }
 
-        // Check subscription limits before creating product
+        // PHASE 3: Enforce usage limits before DB insert (Revenue leak stopper)
         final subscriptionRepo = SubscriptionRepositorySupabase();
         final limits = await subscriptionRepo.getPlanLimits();
-        if (limits.products.current >= limits.products.max && !limits.products.isUnlimited) {
-          throw Exception(
-            'Had produk telah dicapai (${limits.products.current}/${limits.products.max}). '
-            'Sila naik taraf langganan anda untuk menambah lebih banyak produk.'
+        if (!limits.products.isUnlimited && limits.products.current >= limits.products.max) {
+          throw SubscriptionLimitException(
+            'Had produk telah dicapai (${limits.products.current}/${limits.products.max}). Sila naik taraf langganan anda untuk menambah lebih banyak produk.',
+            limitType: 'produk',
+            current: limits.products.current,
+            max: limits.products.max,
           );
         }
 

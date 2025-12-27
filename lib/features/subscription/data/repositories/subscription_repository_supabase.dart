@@ -32,6 +32,20 @@ import 'dart:convert';
 class SubscriptionRepositorySupabase {
   final SupabaseClient _supabase = supabase;
 
+  /// Ensure user has a trial subscription (DB-side).
+  /// Returns the current active/trial/grace subscription (after ensuring), or null if not eligible.
+  Future<Subscription?> ensureTrialSubscription() async {
+    try {
+      // Runs SECURITY DEFINER RPC in DB; creates trial if eligible.
+      await _supabase.rpc('ensure_trial_subscription');
+      // Fetch current subscription after ensuring.
+      return await getUserSubscription();
+    } catch (e) {
+      // If RPC doesn't exist yet or fails, don't block; caller can fallback.
+      return null;
+    }
+  }
+
   /// Helper: Add months to a date using calendar months (not fixed 30 days)
   /// Example: Jan 31 + 1 month = Feb 28/29 (not Mar 2)
   DateTime _addCalendarMonths(DateTime date, int months) {
@@ -84,6 +98,8 @@ class SubscriptionRepositorySupabase {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return null;
 
+      // Fetch recent subscriptions and pick the best "current" one.
+      // We prefer an actually-active subscription (time-aware), otherwise fallback to the latest row.
       final response = await _supabase
           .from('subscriptions')
           .select('''
@@ -94,26 +110,36 @@ class SubscriptionRepositorySupabase {
             )
           ''')
           .eq('user_id', userId)
-          .inFilter('status', ['trial', 'active'])
           .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+          .limit(5);
 
-      if (response == null) return null;
+      if (response == null || (response is List && response.isEmpty)) return null;
 
-      final json = response as Map<String, dynamic>;
-      final planData = json['subscription_plans'] as Map<String, dynamic>?;
-      
-      // Merge plan name into subscription data
-      if (planData != null) {
-        json['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
-        json['duration_months'] = planData['duration_months'] as int? ?? 1;
+      final rows = (response as List).cast<Map<String, dynamic>>();
+
+      Subscription parseRow(Map<String, dynamic> row) {
+        final planDataRaw = row['subscription_plans'];
+        Map<String, dynamic>? planData;
+        if (planDataRaw is Map<String, dynamic>) {
+          planData = planDataRaw;
+        } else if (planDataRaw is List && planDataRaw.isNotEmpty) {
+          planData = planDataRaw.first as Map<String, dynamic>?;
+        }
+        if (planData != null) {
+          row['plan_name'] = planData['name'] as String? ?? 'PocketBizz Pro';
+          row['duration_months'] = planData['duration_months'] as int? ?? 1;
+        }
+        return Subscription.fromJson(row);
       }
 
-      // Note: Grace/expiry transitions are now handled by cron job
-      // (subscription-transitions Edge Function) to avoid performance issues
-      // Transitions are no longer applied on every read
-      return Subscription.fromJson(json);
+      final subs = rows.map(parseRow).toList();
+
+      // Prefer the first subscription that is truly active (time-aware).
+      final active = subs.where((s) => s.isActive).toList();
+      if (active.isNotEmpty) return active.first;
+
+      // Fallback: return most recent (could be pending_payment/expired/cancelled)
+      return subs.first;
     } catch (e) {
       throw Exception('Failed to fetch user subscription: $e');
     }
@@ -380,7 +406,7 @@ class SubscriptionRepositorySupabase {
             'payment_reference': paymentReference,
             'payment_status': 'completed',
             'payment_completed_at': now.toIso8601String(),
-            'auto_renew': false,
+            'auto_renew': true, // PHASE 8: Enable auto-renewal by default
           })
           .select('''
             *,
@@ -607,13 +633,17 @@ class SubscriptionRepositorySupabase {
       // Calculate expiry date
       DateTime expiresAt;
       if (isExtend) {
-        // For extend: get current subscription expiry and add new duration
+        // For extend: allow ACTIVE or GRACE (renewal within grace should still extend/reactivate)
         final currentSub = await getUserSubscription();
-        if (currentSub == null || currentSub.status != SubscriptionStatus.active) {
-          throw Exception('No active subscription to extend');
+        if (currentSub == null ||
+            (currentSub.status != SubscriptionStatus.active &&
+                currentSub.status != SubscriptionStatus.grace)) {
+          throw Exception('No active/grace subscription to extend');
         }
-        // Add new duration to existing expiry date using calendar months
-        expiresAt = _addCalendarMonths(currentSub.expiresAt, plan.durationMonths);
+        // Add new duration using calendar months.
+        // If user is already past expires_at (common in grace), start from now to give full duration.
+        final base = currentSub.expiresAt.isAfter(now) ? currentSub.expiresAt : now;
+        expiresAt = _addCalendarMonths(base, plan.durationMonths);
       } else {
         // For new subscription: start from now using calendar months
         expiresAt = _addCalendarMonths(now, plan.durationMonths);
@@ -637,7 +667,7 @@ class SubscriptionRepositorySupabase {
             'payment_gateway': 'bcl_my',
             'payment_reference': orderId,
             'payment_status': 'pending',
-            'auto_renew': false,
+            'auto_renew': true, // PHASE 8: Enable auto-renewal by default
           })
           .select('id')
           .single();
@@ -1165,6 +1195,13 @@ class SubscriptionRepositorySupabase {
   }
 
   /// Apply grace/expiry transitions based on current time
+  /// 
+  /// ⚠️ DEPRECATED: This method is no longer called.
+  /// Grace/expiry transitions are now handled by cron job (subscription-transitions Edge Function).
+  /// This method is kept for reference only and should not be used.
+  /// 
+  /// PHASE 6: Moved to cron job to avoid performance issues on read path.
+  @Deprecated('Use subscription-transitions Edge Function cron job instead')
   Future<Map<String, dynamic>> _applyGraceTransitions(Map<String, dynamic> json) async {
     try {
       final now = DateTime.now();
@@ -1347,7 +1384,7 @@ class SubscriptionRepositorySupabase {
               'payment_reference': 'PRORATE-SCHEDULED-$newOrderId',
               'payment_status': 'completed',
               'payment_completed_at': nowIso,
-              'auto_renew': false,
+              'auto_renew': true, // PHASE 8: Enable auto-renewal by default
             })
             .select('id')
             .single();
@@ -2139,7 +2176,7 @@ class SubscriptionRepositorySupabase {
             'payment_reference': 'MANUAL-${DateTime.now().millisecondsSinceEpoch}',
             'payment_status': 'completed',
             'payment_completed_at': nowIso,
-            'auto_renew': false,
+            'auto_renew': true, // PHASE 8: Enable auto-renewal by default (can be disabled by user)
             'notes': notes,
           })
           .select('''

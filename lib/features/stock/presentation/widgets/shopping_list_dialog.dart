@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../data/models/stock_item.dart';
 import '../../../../data/repositories/shopping_cart_repository_supabase.dart';
+import '../../../subscription/widgets/subscription_guard.dart';
 
 /// Shopping List Dialog
 /// Review and confirm items to add to shopping cart
@@ -77,9 +78,11 @@ class _ShoppingListDialogState extends State<ShoppingListDialog> {
   }
 
   Future<void> _handleBulkAdd() async {
-    setState(() => _isLoading = true);
+    // PHASE: Subscriber Expired System - Protect bulk action
+    await requirePro(context, 'Tambah ke Senarai Belian (Bulk)', () async {
+      setState(() => _isLoading = true);
 
-    try {
+      try {
       final items = widget.selectedItems.map((item) {
         // qty is in pek/pcs, convert to base unit
         final qtyInPek = double.tryParse(_quantityControllers[item.id]?.text ?? '0') ?? 0;
@@ -119,17 +122,19 @@ class _ShoppingListDialogState extends State<ShoppingListDialog> {
         
         widget.onSuccess();
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+      } catch (e) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    });
   }
 
   @override

@@ -20,6 +20,7 @@ import 'stock_history_page.dart';
 import 'widgets/replenish_stock_dialog.dart';
 import 'widgets/smart_filters_widget.dart';
 import 'widgets/shopping_list_dialog.dart';
+import '../../../features/subscription/widgets/subscription_guard.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
@@ -194,126 +195,129 @@ class _StockPageState extends State<StockPage> {
   }
 
   Future<void> _handleImport() async {
-    try {
-      final filePath = await StockExportImport.pickFile();
-      if (filePath == null) return;
-
-      // Parse file
-      List<Map<String, dynamic>> data;
-      if (filePath.endsWith('.csv')) {
-        data = await StockExportImport.parseCSVFile(filePath);
-      } else {
-        data = await StockExportImport.parseExcelFile(filePath);
-      }
-
-      // Validate
-      final validation = StockExportImport.validateImportData(data);
-      
-      if (!validation['valid']) {
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Validation Errors'),
-              content: SingleChildScrollView(
-                child: Text(validation['errors'].join('\n')),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-        return;
-      }
-
-      // Import to database
-      setState(() => _isLoading = true);
-      
+    // PHASE: Subscriber Expired System - Protect import action
+    await requirePro(context, 'Import CSV/Excel', () async {
       try {
-        final result = await _stockRepository.bulkImportStockItems(data);
+        final filePath = await StockExportImport.pickFile();
+        if (filePath == null) return;
+
+        // Parse file
+        List<Map<String, dynamic>> data;
+        if (filePath.endsWith('.csv')) {
+          data = await StockExportImport.parseCSVFile(filePath);
+        } else {
+          data = await StockExportImport.parseExcelFile(filePath);
+        }
+
+        // Validate
+        final validation = StockExportImport.validateImportData(data);
         
-        if (mounted) {
-          setState(() => _isLoading = false);
-          
-          if (result['success'] == true) {
-            final successCount = result['successCount'] as int;
-            final failureCount = result['failureCount'] as int;
-            final errors = result['errors'] as List<String>;
-            
-            // Show result dialog
+        if (!validation['valid']) {
+          if (mounted) {
             showDialog(
               context: context,
               builder: (context) => AlertDialog(
-                title: const Text('Import Results'),
+                title: const Text('Validation Errors'),
                 content: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('✅ Success: $successCount items'),
-                      Text('❌ Failed: $failureCount items'),
-                      if (errors.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Errors:',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
-                        ...errors.take(10).map((error) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            error,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        )),
-                        if (errors.length > 10)
-                          Text('... and ${errors.length - 10} more errors'),
-                      ],
-                    ],
-                  ),
+                  child: Text(validation['errors'].join('\n')),
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _loadStockItems();
-                    },
+                    onPressed: () => Navigator.pop(context),
                     child: const Text('OK'),
                   ),
                 ],
               ),
             );
-          } else {
+          }
+          return;
+        }
+
+        // Import to database
+        setState(() => _isLoading = true);
+        
+        try {
+          final result = await _stockRepository.bulkImportStockItems(data);
+          
+          if (mounted) {
+            setState(() => _isLoading = false);
+            
+            if (result['success'] == true) {
+              final successCount = result['successCount'] as int;
+              final failureCount = result['failureCount'] as int;
+              final errors = result['errors'] as List<String>;
+              
+              // Show result dialog
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Import Results'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('✅ Success: $successCount items'),
+                        Text('❌ Failed: $failureCount items'),
+                        if (errors.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Errors:',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          ...errors.take(10).map((error) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              error,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          )),
+                          if (errors.length > 10)
+                            Text('... and ${errors.length - 10} more errors'),
+                        ],
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _loadStockItems();
+                      },
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Import failed: ${result['error']}'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          setState(() => _isLoading = false);
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Import failed: ${result['error']}'),
+                content: Text('Error importing: $e'),
                 backgroundColor: Colors.red,
               ),
             );
           }
         }
       } catch (e) {
-        setState(() => _isLoading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error importing: $e'),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text('Error: $e')),
           );
         }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
+    });
   }
 
   void _showReplenishDialog(StockItem item) {

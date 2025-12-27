@@ -3,6 +3,7 @@ import '../../core/utils/rate_limit_mixin.dart';
 import '../../core/utils/rate_limiter.dart';
 import 'production_repository_supabase.dart';
 import '../../features/subscription/data/repositories/subscription_repository_supabase.dart';
+import '../../features/subscription/exceptions/subscription_limit_exception.dart';
 
 /**
  * 🔒 STABLE CORE MODULE – DO NOT MODIFY
@@ -124,13 +125,15 @@ class SalesRepositorySupabase with RateLimitMixin {
     return await executeWithRateLimit(
       type: RateLimitType.write,
       operation: () async {
-        // Check subscription limits before creating sale
+        // PHASE 3: Enforce usage limits before DB insert (Revenue leak stopper)
         final subscriptionRepo = SubscriptionRepositorySupabase();
         final limits = await subscriptionRepo.getPlanLimits();
-        if (limits.transactions.current >= limits.transactions.max && !limits.transactions.isUnlimited) {
-          throw Exception(
-            'Had transaksi telah dicapai (${limits.transactions.current}/${limits.transactions.max}). '
-            'Sila naik taraf langganan anda untuk menambah lebih banyak transaksi.'
+        if (!limits.transactions.isUnlimited && limits.transactions.current >= limits.transactions.max) {
+          throw SubscriptionLimitException(
+            'Had transaksi telah dicapai (${limits.transactions.current}/${limits.transactions.max}). Sila naik taraf langganan anda untuk menambah lebih banyak transaksi.',
+            limitType: 'transaksi',
+            current: limits.transactions.current,
+            max: limits.transactions.max,
           );
         }
 

@@ -5,6 +5,9 @@ import '../../../data/repositories/stock_repository_supabase.dart';
 import '../../../data/models/stock_item.dart';
 import '../../../data/models/stock_movement.dart';
 import '../../../core/utils/unit_conversion.dart';
+import '../../../features/subscription/exceptions/subscription_limit_exception.dart';
+import '../../../features/subscription/presentation/subscription_page.dart';
+import '../../../features/subscription/widgets/subscription_guard.dart';
 
 /// Add/Edit Stock Item Page
 class AddEditStockItemPage extends StatefulWidget {
@@ -76,70 +79,128 @@ class _AddEditStockItemPageState extends State<AddEditStockItemPage> {
   Future<void> _saveStockItem() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    // PHASE: Subscriber Expired System - Protect create/edit action
+    final action = widget.isEditing ? 'Edit Stok Item' : 'Tambah Stok Item';
+    await requirePro(context, action, () async {
+      setState(() => _isLoading = true);
 
-    try {
-      final packageSize = double.parse(_packageSizeController.text);
-      final lowStockInPek = double.parse(_lowStockThresholdController.text);
-      // Convert from pek/pcs to base unit
-      final lowStockThreshold = lowStockInPek * packageSize;
-      
-      final input = StockItemInput(
-        name: _nameController.text.trim(),
-        unit: _selectedUnit,
-        packageSize: packageSize,
-        purchasePrice: double.parse(_purchasePriceController.text),
-        lowStockThreshold: lowStockThreshold,
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
-      );
+      try {
+        final packageSize = double.parse(_packageSizeController.text);
+        final lowStockInPek = double.parse(_lowStockThresholdController.text);
+        // Convert from pek/pcs to base unit
+        final lowStockThreshold = lowStockInPek * packageSize;
+        
+        final input = StockItemInput(
+          name: _nameController.text.trim(),
+          unit: _selectedUnit,
+          packageSize: packageSize,
+          purchasePrice: double.parse(_purchasePriceController.text),
+          lowStockThreshold: lowStockThreshold,
+          notes: _notesController.text.trim().isEmpty
+              ? null
+              : _notesController.text.trim(),
+        );
 
-      if (widget.isEditing) {
-        // Update existing item
-        await _stockRepository.updateStockItem(widget.stockItem!.id, input);
-      } else {
-        // Create new item
-        final newItem = await _stockRepository.createStockItem(input);
+        if (widget.isEditing) {
+          // Update existing item
+          await _stockRepository.updateStockItem(widget.stockItem!.id, input);
+        } else {
+          // Create new item
+          final newItem = await _stockRepository.createStockItem(input);
 
-        // If initial quantity provided, add it (convert from pek/pcs to base unit)
-        final initialQtyInPek = _initialQuantityController.text.trim();
-        if (initialQtyInPek.isNotEmpty && double.parse(initialQtyInPek) > 0) {
-          final initialQty = double.parse(initialQtyInPek) * packageSize;
-          await _stockRepository.recordStockMovement(
-            StockMovementInput(
-              stockItemId: newItem.id,
-              movementType: StockMovementType.purchase,
-              quantityChange: initialQty,
-              reason: _reasonController.text.trim().isEmpty
-                  ? 'Initial stock'
-                  : _reasonController.text.trim(),
+          // If initial quantity provided, add it (convert from pek/pcs to base unit)
+          final initialQtyInPek = _initialQuantityController.text.trim();
+          if (initialQtyInPek.isNotEmpty && double.parse(initialQtyInPek) > 0) {
+            final initialQty = double.parse(initialQtyInPek) * packageSize;
+            await _stockRepository.recordStockMovement(
+              StockMovementInput(
+                stockItemId: newItem.id,
+                movementType: StockMovementType.purchase,
+                quantityChange: initialQty,
+                reason: _reasonController.text.trim().isEmpty
+                    ? 'Initial stock'
+                    : _reasonController.text.trim(),
+              ),
+            );
+          }
+        }
+
+        if (mounted) {
+          Navigator.pop(context, true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                widget.isEditing
+                    ? 'Stock item updated!'
+                    : 'Stock item added!',
+              ),
+              backgroundColor: Colors.green,
             ),
           );
         }
-      }
-
-      if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.isEditing
-                  ? 'Stock item updated!'
-                  : 'Stock item added!',
+      } catch (e) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          // PHASE 3: Handle subscription limit exceptions with upgrade prompt
+          if (e is SubscriptionLimitException) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.workspace_premium, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Had Langganan Dicapai'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(e.userMessage),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Upgrade langganan anda untuk menambah lebih banyak stok item.',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Tutup'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SubscriptionPage(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Lihat Pakej'),
+                ),
+              ],
             ),
-            backgroundColor: Colors.green,
-          ),
-        );
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e')),
+          );
+        }
       }
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
-    }
+    });
   }
 
   @override

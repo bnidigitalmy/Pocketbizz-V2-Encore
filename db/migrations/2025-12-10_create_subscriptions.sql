@@ -289,7 +289,7 @@ VALUES
     ('1 Bulan', 1, 39.00, 39.00, 0.00, 1),
     ('3 Bulan', 3, 39.00, 117.00, 0.00, 2),
     ('6 Bulan', 6, 39.00, 215.00, 8.00, 3),  -- 8% discount: (39 x 6) - 8% = 234 - 18.72 = 215.28 → rounded to 215
-    ('12 Bulan', 12, 39.00, 398.00, 15.00, 4)  -- 15% discount: (39 x 12) - 15% = 468 - 70.20 = 397.80 → rounded to 398
+    ('12 Bulan', 12, 39.00, 397.00, 15.00, 4)  -- 15% discount: (39 x 12) - 15% = 468 - 70.20 = 397.80 → floored to 397
 ON CONFLICT (duration_months) DO UPDATE
 SET 
     price_per_month = EXCLUDED.price_per_month,
@@ -301,5 +301,5 @@ SET
 -- - 1 Bulan: RM 29 (no discount)
 -- - 3 Bulan: RM 87 (RM 29 x 3, no discount)
 -- - 6 Bulan: RM 160 (RM 29 x 6 - 8% = 174 - 13.92 = 160.08 → rounded to 160)
--- - 12 Bulan: RM 296 (RM 29 x 12 - 15% = 348 - 52.20 = 295.80 → rounded to 296)
+-- - 12 Bulan: RM 295 (RM 29 x 12 - 15% = 348 - 52.20 = 295.80 → floored to 295)
 

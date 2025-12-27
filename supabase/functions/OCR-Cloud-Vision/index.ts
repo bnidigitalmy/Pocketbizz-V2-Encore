@@ -75,12 +75,39 @@ serve(async (req) => {
         console.warn("Could not extract user ID from token:", e);
       }
     }
+
+    const { imageBase64, uploadImage = true } = await req.json();
+    
+    // PHASE: Subscriber Expired System - Backend Enforcement
+    // Check subscription before processing OCR (OCR creates expense data)
+    // NOTE: Grace users must be allowed based on grace_until (even if expires_at is past).
+    const nowIso = new Date().toISOString();
+    if (userId) {
+      const { data: subscription, error: subError } = await supabase
+        .from("subscriptions")
+        .select("status, expires_at, grace_until")
+        .eq("user_id", userId)
+        .in("status", ["active", "trial", "grace"])
+        .or(`expires_at.gt.${nowIso},grace_until.gt.${nowIso}`)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (subError || !subscription) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Subscription required",
+            message: "Langganan anda telah tamat. Sila aktifkan semula untuk guna OCR.",
+          }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
     
     if (!userId && uploadImage) {
       console.warn("No user ID found - image upload will be skipped");
     }
-
-    const { imageBase64, uploadImage = true } = await req.json();
     
     if (!imageBase64) {
       return new Response(

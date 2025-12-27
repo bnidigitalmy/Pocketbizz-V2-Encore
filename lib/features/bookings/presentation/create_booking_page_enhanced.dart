@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../data/repositories/bookings_repository_supabase.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/models/product.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Enhanced Create Booking Page
 /// Full-featured with discount, deposit, and better UX
@@ -125,10 +126,12 @@ class _CreateBookingPageEnhancedState extends State<CreateBookingPageEnhanced> {
       return;
     }
 
-    setState(() => _loading = true);
+    // PHASE: Subscriber Expired System - Protect create action
+    await requirePro(context, 'Tambah Tempahan', () async {
+      setState(() => _loading = true);
 
-    try {
-      await _bookingsRepo.createBooking(
+      try {
+        await _bookingsRepo.createBooking(
         customerName: _customerNameController.text.trim(),
         customerPhone: _customerPhoneController.text.trim(),
         customerEmail: _customerEmailController.text.trim().isEmpty
@@ -158,29 +161,31 @@ class _CreateBookingPageEnhancedState extends State<CreateBookingPageEnhanced> {
             : double.tryParse(_depositAmountController.text),
       );
 
-      if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Tempahan berjaya dicipta!'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        if (mounted) {
+          Navigator.pop(context, true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Tempahan berjaya dicipta!'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _loading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _loading = false);
+        }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
-    }
+    });
   }
 
   void _addProduct(Product product) {

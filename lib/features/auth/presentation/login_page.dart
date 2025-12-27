@@ -148,6 +148,15 @@ class _LoginPageState extends State<LoginPage> {
           } catch (e) {
             // Log error but don't block registration
             debugPrint('Failed to initialize trial: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Akaun berjaya dicipta, tapi trial gagal diaktifkan. Sila log keluar & log masuk semula. ($e)'),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 6),
+                ),
+              );
+            }
           }
 
           if (mounted) {
@@ -184,6 +193,15 @@ class _LoginPageState extends State<LoginPage> {
           } catch (e) {
             // Log error but don't block sign in
             debugPrint('Failed to check/initialize trial on sign in: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Trial gagal diaktifkan. Sila cuba log keluar & log masuk semula. ($e)'),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 6),
+                ),
+              );
+            }
           }
         }
 

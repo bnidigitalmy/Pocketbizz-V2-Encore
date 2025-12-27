@@ -8,6 +8,7 @@ import 'package:printing/printing.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 import '../../../core/theme/app_colors.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 import '../../../data/repositories/consignment_claims_repository_supabase.dart';
 // Note: Using original repo for now, can switch to refactored version later
 import '../../../data/repositories/deliveries_repository_supabase.dart';
@@ -478,33 +479,35 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
       return;
     }
 
-    setState(() => _isLoading = true);
-    try {
-      // Validate first
-      final validation = await _claimsRepo.validateClaimRequest(
-        vendorId: _selectedVendorId!,
-        deliveryIds: _selectedDeliveries.map((d) => d.id).toList(),
-      );
+    // PHASE: Subscriber Expired System - Protect create action
+    await requirePro(context, 'Tambah Tuntutan', () async {
+      setState(() => _isLoading = true);
+      try {
+        // Validate first
+        final validation = await _claimsRepo.validateClaimRequest(
+          vendorId: _selectedVendorId!,
+          deliveryIds: _selectedDeliveries.map((d) => d.id).toList(),
+        );
 
-      if (mounted) {
-        setState(() {
-          _validationResult = validation;
-          _isLoading = false;
-        });
-      }
+        if (mounted) {
+          setState(() {
+            _validationResult = validation;
+            _isLoading = false;
+          });
+        }
 
-      if (!validation.isValid) {
-        _showValidationErrors(validation);
-        return;
-      }
+        if (!validation.isValid) {
+          _showValidationErrors(validation);
+          return;
+        }
 
-      // Show warnings if any
-      if (validation.warnings.isNotEmpty) {
-        _showWarnings(validation.warnings);
-      }
+        // Show warnings if any
+        if (validation.warnings.isNotEmpty) {
+          _showWarnings(validation.warnings);
+        }
 
-      // Create claim
-      setState(() => _isCreating = true);
+        // Create claim
+        setState(() => _isCreating = true);
 
       // Build item metadata with carry_forward_status
       final itemMetadata = <String, Map<String, dynamic>>{};
@@ -567,16 +570,21 @@ class _CreateClaimSimplifiedPageState extends State<CreateClaimSimplifiedPage> {
           _currentStep = 5; // Go to Step 5 (Preview)
         });
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isCreating = false);
-        if (e is ClaimValidationException) {
-          _showValidationErrors(e.validation);
-        } else {
-          _showError('Ralat mencipta tuntutan: $e');
+      } catch (e) {
+        if (mounted) {
+          setState(() => _isCreating = false);
+          if (e is ClaimValidationException) {
+            _showValidationErrors(e.validation);
+          } else {
+            _showError('Ralat mencipta tuntutan: $e');
+          }
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isCreating = false);
         }
       }
-    }
+    });
   }
 
   void _showValidationErrors(ClaimValidationResult validation) {

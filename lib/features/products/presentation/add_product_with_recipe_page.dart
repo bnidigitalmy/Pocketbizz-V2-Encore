@@ -1,5 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../../subscription/widgets/subscription_guard.dart';
+import '../../subscription/widgets/upgrade_modal_enhanced.dart';
+import '../../subscription/services/subscription_service.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
@@ -386,10 +389,24 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
       return;
     }
 
+    final isEditMode = widget.product != null;
+
+    // Soft block: expired users should see upgrade modal (not technical DB errors).
+    final subscription = await SubscriptionService().getCurrentSubscription();
+    if (subscription == null || !subscription.isActive) {
+      if (mounted) {
+        await UpgradeModalEnhanced.show(
+          context,
+          action: isEditMode ? 'Edit Produk & Resepi' : 'Tambah Produk & Resepi',
+          subscription: subscription,
+        );
+      }
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
-      final isEditMode = widget.product != null;
       Product productToSave;
       String productId;
 
@@ -549,9 +566,22 @@ class _AddProductWithRecipePageState extends State<AddProductWithRecipePage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        final msg = e.toString();
+        final isSubRequired = msg.contains('Subscription required') || msg.contains('P0001');
+        if (isSubRequired) {
+          await UpgradeModalEnhanced.show(
+            context,
+            action: isEditMode ? 'Edit Produk & Resepi' : 'Tambah Produk & Resepi',
+            subscription: await SubscriptionService().getCurrentSubscription(),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ralat: Gagal simpan produk. Sila cuba lagi.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

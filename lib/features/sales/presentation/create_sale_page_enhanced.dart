@@ -4,6 +4,8 @@ import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/repositories/production_repository_supabase.dart';
 import '../../../data/models/product.dart';
 import '../../../core/supabase/supabase_client.dart';
+import '../../../features/subscription/exceptions/subscription_limit_exception.dart';
+import '../../../features/subscription/presentation/subscription_page.dart';
 
 /**
  * 🔒 POCKETBIZZ CORE ENGINE (STABLE)
@@ -163,12 +165,62 @@ class _CreateSalePageEnhancedState extends State<CreateSalePageEnhanced> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ralat: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        // PHASE 3: Handle subscription limit exceptions with upgrade prompt
+        if (e is SubscriptionLimitException) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.workspace_premium, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Had Langganan Dicapai'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(e.userMessage),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Upgrade langganan anda untuk menambah lebih banyak transaksi.',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Tutup'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SubscriptionPage(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Lihat Pakej'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Ralat: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     } finally {
       if (mounted) {

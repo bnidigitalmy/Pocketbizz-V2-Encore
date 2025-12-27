@@ -15,6 +15,7 @@ import '../../../data/repositories/production_repository_supabase.dart';
 import '../../../data/repositories/products_repository_supabase.dart';
 import '../../../data/models/production_batch.dart';
 import '../../../data/models/product.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Record Production Page - Create new production batch
 class RecordProductionPage extends StatefulWidget {
@@ -83,9 +84,11 @@ class _RecordProductionPageState extends State<RecordProductionPage> {
       return;
     }
 
-    setState(() => _isSaving = true);
+    // PHASE: Subscriber Expired System - Protect record action
+    await requirePro(context, 'Rekod Pengeluaran', () async {
+      setState(() => _isSaving = true);
 
-    try {
+      try {
       final input = ProductionBatchInput(
         productId: _selectedProduct!.id,
         quantity: int.parse(_quantityController.text),
@@ -99,28 +102,33 @@ class _RecordProductionPageState extends State<RecordProductionPage> {
             : _batchNumberController.text.trim(),
       );
 
-      await _productionRepo.recordProductionBatch(input);
+        await _productionRepo.recordProductionBatch(input);
 
-      if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Production recorded! Stock auto-deducted ✓'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          Navigator.pop(context, true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Production recorded! Stock auto-deducted ✓'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        setState(() => _isSaving = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isSaving = false);
+        }
       }
-    } catch (e) {
-      setState(() => _isSaving = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    });
   }
 
   Future<void> _selectDate({required bool isExpiry}) async {

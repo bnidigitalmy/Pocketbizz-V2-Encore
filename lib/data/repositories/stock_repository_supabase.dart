@@ -15,6 +15,7 @@ import '../models/stock_item_batch.dart';
 import '../../core/utils/rate_limit_mixin.dart';
 import '../../core/utils/rate_limiter.dart';
 import '../../features/subscription/data/repositories/subscription_repository_supabase.dart';
+import '../../features/subscription/exceptions/subscription_limit_exception.dart';
 
 /// Stock Repository for managing stock items and movements with rate limiting
 class StockRepository with RateLimitMixin {
@@ -137,13 +138,15 @@ class StockRepository with RateLimitMixin {
         throw Exception('User not authenticated');
       }
 
-      // Check subscription limits before creating stock item
+      // PHASE 3: Enforce usage limits before DB insert (Revenue leak stopper)
       final subscriptionRepo = SubscriptionRepositorySupabase();
       final limits = await subscriptionRepo.getPlanLimits();
-      if (limits.stockItems.current >= limits.stockItems.max && !limits.stockItems.isUnlimited) {
-        throw Exception(
-          'Had stok item telah dicapai (${limits.stockItems.current}/${limits.stockItems.max}). '
-          'Sila naik taraf langganan anda untuk menambah lebih banyak stok item.'
+      if (!limits.stockItems.isUnlimited && limits.stockItems.current >= limits.stockItems.max) {
+        throw SubscriptionLimitException(
+          'Had stok item telah dicapai (${limits.stockItems.current}/${limits.stockItems.max}). Sila naik taraf langganan anda untuk menambah lebih banyak stok item.',
+          limitType: 'stok',
+          current: limits.stockItems.current,
+          max: limits.stockItems.max,
         );
       }
 

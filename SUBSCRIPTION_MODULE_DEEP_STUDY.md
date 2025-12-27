@@ -1404,7 +1404,460 @@ The subscription system is **functionally complete** and **well-architected**, b
 
 ---
 
-**Document Version:** 1.0  
+---
+
+## 15. DETAILED CODE FLOW ANALYSIS
+
+### 15.1 Subscription Creation Flow (New User)
+
+```
+1. User Registration
+   └─> SubscriptionService.initializeTrial()
+       ├─> Check early adopter count (< 100?)
+       ├─> Register early adopter if eligible
+       └─> SubscriptionRepository.startTrial()
+           ├─> Check existing subscription (must be null)
+           ├─> Get 1-month plan
+           ├─> Check early adopter status
+           ├─> Calculate trial end (now + 7 days)
+           ├─> Insert subscription (status='trial')
+           └─> Return Subscription object
+
+2. Trial Period (7 days)
+   └─> User can access features (SubscriptionGuard allows trial)
+   └─> SubscriptionPage shows trial countdown
+   └─> Plan limits: 10 products, 50 stock, 100 transactions (NOT ENFORCED)
+
+3. Trial Expiry
+   └─> SubscriptionRepository.getUserSubscription()
+       └─> _applyGraceTransitions() (called on every read)
+           └─> If trial_ends_at < now:
+               └─> Update status to 'expired'
+               └─> User loses access
+```
+
+### 15.2 Payment Flow (New Subscription)
+
+```
+1. User Selects Plan
+   └─> SubscriptionPage._handlePayment()
+       ├─> Show email reminder dialog
+       ├─> Get user email
+       └─> SubscriptionService.redirectToPayment()
+           ├─> Get plan details
+           ├─> Check early adopter status
+           ├─> Calculate price (RM 29 or RM 39/month)
+           ├─> Generate order_id (PBZ-UUID)
+           ├─> SubscriptionRepository.createPendingPaymentSession()
+           │   ├─> Create subscription (status='pending_payment')
+           │   ├─> Calculate expiry (now + duration_months * 30 days) ⚠️
+           │   ├─> Set grace_until (expires_at + 7 days)
+           │   └─> Create payment record (status='pending')
+           └─> Launch BCL.my URL with order_id
+
+2. User Completes Payment on BCL.my
+   └─> BCL.my processes payment
+   └─> BCL.my sends webhook to Encore.ts
+       └─> POST /webhooks/bcl
+           ├─> Verify HMAC signature
+           ├─> Find subscription by payment_reference (order_id)
+           ├─> Update subscription (status='active')
+           ├─> Update payment (status='completed')
+           └─> Generate receipt (non-blocking)
+
+3. User Returns to App
+   └─> PaymentSuccessPage
+       ├─> Parse query params (order, amount, status_id)
+       ├─> Setup Supabase Realtime subscriptions
+       ├─> Start polling (every 2s, max 30s)
+       ├─> SubscriptionService.confirmPendingPayment()
+       │   └─> SubscriptionRepository.activatePendingPayment()
+       │       ├─> Find pending subscription by order_id
+       │       ├─> Check if extend (compare expiry dates)
+       │       ├─> If extend: Update existing subscription
+       │       ├─> If new: Activate pending subscription
+       │       ├─> Update payment record
+       │       ├─> Generate receipt
+       │       └─> Send email notification
+       └─> Show success/failure message
+```
+
+### 15.3 Extend Subscription Flow
+
+```
+1. User Has Active Subscription
+   └─> SubscriptionPage shows "Tambah Tempoh" option
+   └─> User selects plan (different duration)
+   └─> SubscriptionService.redirectToPayment(isExtend: true)
+       ├─> SubscriptionRepository.createPendingPaymentSession(isExtend: true)
+       │   ├─> Get current subscription
+       │   ├─> Calculate new expiry (current_expires_at + duration_months * 30 days) ⚠️
+       │   ├─> Create pending subscription with new expiry
+       │   └─> Create pending payment
+       └─> Launch BCL.my URL
+
+2. Payment Success
+   └─> SubscriptionRepository.activatePendingPayment()
+       ├─> Detect extend (pending_expires_at > current_expires_at)
+       ├─> Update existing subscription:
+       │   ├─> expires_at = pending_expires_at
+       │   ├─> grace_until = expires_at + 7 days
+       │   └─> payment_status = 'completed'
+       ├─> Delete pending subscription
+       ├─> Update payment record to point to existing subscription
+       └─> Generate receipt
+```
+
+### 15.4 Grace Period Flow
+
+```
+1. Subscription Expires
+   └─> SubscriptionRepository.getUserSubscription()
+       └─> _applyGraceTransitions()
+           ├─> If status='active' && expires_at < now:
+           │   ├─> Update status to 'grace'
+           │   ├─> Set grace_until (expires_at + 7 days)
+           │   └─> Send grace reminder email (if not sent)
+           └─> If status='grace' && grace_until < now:
+               └─> Update status to 'expired'
+
+2. Grace Period (7 days)
+   └─> User should have access (isActive includes grace)
+   └─> SubscriptionGuard blocks access ⚠️ (BUG)
+   └─> SubscriptionPage shows grace alert
+   └─> User can extend subscription
+
+3. Grace Expiry
+   └─> Status changes to 'expired'
+   └─> User loses access
+   └─> Must purchase new subscription
+```
+
+### 15.5 Pause/Resume Flow
+
+```
+1. Admin Pauses Subscription
+   └─> SubscriptionService.pauseSubscription()
+       └─> SubscriptionRepository.pauseSubscription()
+           ├─> Calculate new expiry (current_expires_at + days_to_pause)
+           ├─> Update subscription:
+           │   ├─> is_paused = true
+           │   ├─> status = 'paused'
+           │   ├─> paused_at = now
+           │   ├─> paused_until = now + days_to_pause
+           │   ├─> expires_at = new_expires_at
+           │   └─> pause_reason = reason
+           └─> Return updated subscription
+
+2. Subscription Paused
+   └─> isActive = false (because isPaused = true)
+   └─> User loses access
+   └─> Expiry date extended
+
+3. Admin Resumes Subscription
+   └─> SubscriptionService.resumeSubscription()
+       └─> SubscriptionRepository.resumeSubscription()
+           ├─> Check if expired
+           ├─> Update subscription:
+           │   ├─> is_paused = false
+           │   ├─> status = 'active' or 'expired'
+           │   └─> Clear pause fields
+           └─> Return updated subscription
+```
+
+---
+
+## 16. ADMIN FEATURES ANALYSIS
+
+### 16.1 Admin Dashboard
+
+**Location:** `lib/features/subscription/presentation/admin/admin_dashboard_page.dart`
+
+**Features:**
+- User statistics (total, paid, trial active/expired)
+- Subscription statistics (total, active)
+- Revenue statistics (MRR - Monthly Recurring Revenue)
+- Quick actions (navigate to user management, subscriptions)
+
+**⚠️ Issues:**
+- No admin authentication check (relies on navigation guard)
+- Statistics may be inaccurate (counts from subscriptions table, not auth.users)
+- No real-time updates
+
+### 16.2 Admin Operations
+
+**Available Operations:**
+1. **Manual Activation** (`manualActivateSubscription`)
+   - Create subscription for user
+   - Set price, duration, expiry
+   - Create payment record (status='completed', gateway='manual')
+   - ⚠️ No validation for existing active subscription
+
+2. **Extend Subscription** (`extendSubscription`)
+   - Add months to existing subscription
+   - Calculate extension price
+   - Create payment record
+   - ✅ Good: Uses calendar months
+
+3. **Pause Subscription** (`pauseSubscription`)
+   - Pause subscription for X days
+   - Extend expiry date
+   - Set status to 'paused'
+   - ✅ Good: Extends expiry automatically
+
+4. **Resume Subscription** (`resumeSubscription`)
+   - Resume paused subscription
+   - Clear pause fields
+   - Check if expired
+   - ✅ Good: Handles expiry check
+
+5. **Process Refund** (`processRefund`)
+   - Full or partial refund
+   - Update payment record
+   - Create refund record
+   - Cancel subscription if full refund
+   - ⚠️ No actual gateway API call (TODO)
+
+6. **Add Manual Payment** (`addManualPayment`)
+   - Record manual payment
+   - Link to subscription
+   - Create payment record
+   - ✅ Good: Useful for offline payments
+
+---
+
+## 17. INTEGRATION POINTS
+
+### 17.1 With Other Modules
+
+**Vendors Module:**
+- Protected by `SubscriptionGuard`
+- Requires active subscription or trial
+- ⚠️ Grace period users blocked (bug)
+
+**Claims Module:**
+- Protected by `SubscriptionGuard`
+- Requires active subscription or trial
+- ⚠️ Grace period users blocked (bug)
+
+**Products Module:**
+- No subscription guard
+- Plan limits displayed but not enforced
+- ⚠️ Users can exceed limits
+
+**Stock Module:**
+- No subscription guard
+- Plan limits displayed but not enforced
+- ⚠️ Users can exceed limits
+
+**Sales Module:**
+- No subscription guard
+- Plan limits displayed but not enforced
+- ⚠️ Users can exceed limits
+
+### 17.2 External Services
+
+**BCL.my Payment Gateway:**
+- Payment form URLs (hardcoded)
+- Webhook endpoint: `/webhooks/bcl` (Encore.ts)
+- Signature verification (HMAC SHA256)
+- Order ID format: `PBZ-{UUID}`
+
+**Supabase:**
+- Database (PostgreSQL)
+- Realtime subscriptions
+- Storage (receipt PDFs)
+- Auth (user management)
+
+**Encore.ts Backend:**
+- Webhook handler
+- Email service (resend-email Edge Function)
+- Document storage service
+
+**Email Service (Resend):**
+- Payment success emails
+- Grace period reminders
+- Payment failed emails
+- Subscription extended emails
+
+---
+
+## 18. EDGE CASES & SCENARIOS
+
+### 18.1 Multiple Pending Payments
+
+**Scenario:** User creates multiple pending payments before completing first one.
+
+**Current Behavior:**
+- Multiple pending subscriptions created
+- Multiple pending payments created
+- `activatePendingPayment()` finds latest pending by order_id
+
+**⚠️ Issue:** May activate wrong subscription if order_id doesn't match.
+
+**Fix:** Validate that only one pending payment exists per user at a time.
+
+### 18.2 Payment Amount Mismatch
+
+**Scenario:** User pays different amount than subscription amount.
+
+**Current Behavior:**
+- No validation in webhook
+- Subscription activated regardless of amount
+
+**⚠️ Issue:** User may pay less/more than expected.
+
+**Fix:** Validate payment amount matches subscription amount in webhook.
+
+### 18.3 Webhook Delay
+
+**Scenario:** BCL.my webhook is delayed (network issues, etc.).
+
+**Current Behavior:**
+- PaymentSuccessPage polls for 30 seconds
+- If webhook delayed, user may not see success
+- User can manually check status later
+
+**⚠️ Issue:** Poor UX if webhook delayed.
+
+**Fix:** Add manual "Check Status" button or extend polling time.
+
+### 18.4 Concurrent Extend Attempts
+
+**Scenario:** User tries to extend subscription multiple times simultaneously.
+
+**Current Behavior:**
+- Multiple pending subscriptions created
+- Multiple pending payments created
+- First payment to succeed activates subscription
+
+**⚠️ Issue:** May create duplicate subscriptions.
+
+**Fix:** Add validation to prevent multiple extend attempts.
+
+### 18.5 Early Adopter Limit Race Condition
+
+**Scenario:** Multiple users register simultaneously when count is 99.
+
+**Current Behavior:**
+- `register_early_adopter()` uses `ON CONFLICT DO NOTHING`
+- First user to insert gets slot 100
+- Other users may not get early adopter status
+
+**✅ Good:** Race condition handled by database constraint.
+
+---
+
+## 19. MONITORING & LOGGING
+
+### 19.1 Current Logging
+
+**✅ Implemented:**
+- Error logging in repository methods
+- Payment status changes logged
+- Email notifications logged in `notification_logs` table
+
+**⚠️ Missing:**
+- No structured logging
+- No log levels (info, warn, error)
+- No performance metrics
+- No subscription lifecycle events logged
+
+### 19.2 Recommended Monitoring
+
+**Metrics to Track:**
+1. **Payment Metrics:**
+   - Payment success rate
+   - Payment failure rate
+   - Average payment processing time
+   - Webhook delivery time
+
+2. **Subscription Metrics:**
+   - Trial conversion rate
+   - Subscription activation rate
+   - Grace period conversion rate
+   - Churn rate
+
+3. **Revenue Metrics:**
+   - MRR (Monthly Recurring Revenue)
+   - ARR (Annual Recurring Revenue)
+   - Revenue by plan
+   - Early adopter revenue
+
+4. **Error Metrics:**
+   - Webhook failures
+   - Receipt generation failures
+   - Email delivery failures
+   - Database errors
+
+---
+
+## 20. FINAL ASSESSMENT
+
+### 20.1 Production Readiness Score: **7.5/10**
+
+**Strengths (+):**
+- ✅ Comprehensive feature set
+- ✅ Good database design
+- ✅ Real-time updates
+- ✅ PDF receipts
+- ✅ Email notifications
+- ✅ Admin dashboard
+- ✅ Refund system ready
+
+**Weaknesses (-):**
+- ⚠️ Critical bugs (grace period access, usage limits)
+- ⚠️ Missing validations
+- ⚠️ No auto-renewal
+- ⚠️ Large files (maintainability)
+- ⚠️ No tests
+
+### 20.2 Risk Assessment
+
+**High Risk:**
+- Grace period users blocked (business impact)
+- Usage limits not enforced (revenue impact)
+- No payment amount validation (security risk)
+
+**Medium Risk:**
+- No auto-renewal (user experience)
+- Large files (maintainability)
+- No tests (regression risk)
+
+**Low Risk:**
+- Calendar months calculation (minor accuracy issue)
+- Trial reuse (minor business rule)
+
+### 20.3 Recommended Action Plan
+
+**Week 1 (Critical Fixes):**
+1. Fix grace period access in SubscriptionGuard
+2. Add usage limit enforcement
+3. Fix calendar months calculation
+4. Prevent trial reuse
+
+**Week 2 (High Priority):**
+5. Move grace transitions to cron job
+6. Add payment retry limit
+7. Add payment amount validation
+8. Add manual status check button
+
+**Week 3 (Medium Priority):**
+9. Split large files
+10. Improve error messages
+11. Add caching
+12. Add monitoring
+
+**Future:**
+13. Implement auto-renewal
+14. Add multiple payment gateways
+15. Add comprehensive tests
+16. Add subscription analytics
+
+---
+
+**Document Version:** 2.0  
 **Last Updated:** 2025-01-16  
-**Author:** Corey (AI Assistant)
+**Author:** Corey (AI Assistant)  
+**Total Analysis:** 20 sections, 2000+ lines
 

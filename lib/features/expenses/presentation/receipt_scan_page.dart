@@ -14,6 +14,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/services/receipt_storage_service.dart';
 import '../../../data/repositories/expenses_repository_supabase.dart';
 import '../../../data/models/expense.dart';
+import '../../subscription/widgets/subscription_guard.dart';
+import '../../subscription/services/subscription_service.dart';
+import '../../subscription/widgets/upgrade_modal_enhanced.dart';
 
 /// Parsed receipt data from OCR
 class ParsedReceipt {
@@ -390,6 +393,19 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
     });
 
     try {
+      // Soft block: expired users should see upgrade modal (not technical errors).
+      final subscription = await SubscriptionService().getCurrentSubscription();
+      if (subscription == null || !subscription.isActive) {
+        if (mounted) {
+          await UpgradeModalEnhanced.show(
+            context,
+            action: 'Scan Resit (OCR)',
+            subscription: subscription,
+          );
+        }
+        return;
+      }
+
       final base64Image = base64Encode(bytes);
 
       // Call Supabase Edge Function for OCR (with image upload option)
@@ -428,14 +444,30 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
       _prefillFormFromParsed(parsed);
 
     } catch (e) {
-      setState(() => _ocrError = e.toString());
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ralat OCR: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+      final msg = e.toString();
+      final isSubRequired = msg.contains('Subscription required') ||
+          msg.contains('status: 403') ||
+          msg.contains('P0001');
+
+      if (isSubRequired) {
+        if (mounted) {
+          await UpgradeModalEnhanced.show(
+            context,
+            action: 'Scan Resit (OCR)',
+            subscription: await SubscriptionService().getCurrentSubscription(),
+          );
+          setState(() => _ocrError = null);
+        }
+      } else {
+        setState(() => _ocrError = msg);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('OCR gagal diproses. Sila cuba lagi.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -540,7 +572,9 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
       return;
     }
 
-    setState(() => _isSaving = true);
+    // PHASE: Subscriber Expired System - Protect OCR save action
+    await requirePro(context, 'Simpan Resit (OCR)', () async {
+      setState(() => _isSaving = true);
 
     try {
       final amountText = _amountController.text.trim();
@@ -633,21 +667,22 @@ class _ReceiptScanPageState extends State<ReceiptScanPage> {
         );
         Navigator.of(context).pop(true);
       }
-    } catch (e, stackTrace) {
-      debugPrint('Save expense error: $e');
-      debugPrint('Stack trace: $stackTrace');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal menyimpan: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
+      } catch (e, stackTrace) {
+        debugPrint('Save expense error: $e');
+        debugPrint('Stack trace: $stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Gagal menyimpan: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
       }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
+    });
   }
 
   /// Reset to capture new receipt

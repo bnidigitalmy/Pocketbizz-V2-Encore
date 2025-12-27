@@ -16,6 +16,7 @@ import '../../../core/services/receipt_storage_service.dart';
 import '../../../core/utils/date_time_helper.dart';
 import '../../../data/models/expense.dart';
 import '../../../data/repositories/expenses_repository_supabase.dart';
+import '../../../features/subscription/widgets/subscription_guard.dart';
 import 'receipt_scan_page.dart';
 
 /// Expenses Page - Friendly UX for busy non-technical users.
@@ -302,41 +303,44 @@ class _ExpensesPageState extends State<ExpensesPage> {
   Future<void> _saveExpense() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSaving = true);
-    try {
-      final amount = double.parse(_formAmount);
-      final expense = await _repo.createExpense(
-        category: _formCategory,
-        amount: amount,
-        expenseDate: _formDate,
-        description:
-            _formDescription.trim().isEmpty ? null : _formDescription.trim(),
-      );
+    // PHASE: Subscriber Expired System - Protect add action
+    await requirePro(context, 'Tambah Perbelanjaan', () async {
+      setState(() => _isSaving = true);
+      try {
+        final amount = double.parse(_formAmount);
+        final expense = await _repo.createExpense(
+          category: _formCategory,
+          amount: amount,
+          expenseDate: _formDate,
+          description:
+              _formDescription.trim().isEmpty ? null : _formDescription.trim(),
+        );
 
-      if (mounted) {
-        setState(() {
-          _expenses.insert(0, expense);
-          _isSaving = false;
-        });
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Perbelanjaan telah direkod.'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        if (mounted) {
+          setState(() {
+            _expenses.insert(0, expense);
+            _isSaving = false;
+          });
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Perbelanjaan telah direkod.'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Ralat menyimpan perbelanjaan: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ralat menyimpan perbelanjaan: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    });
   }
 
   Future<void> _openAddCategoryDialog() async {

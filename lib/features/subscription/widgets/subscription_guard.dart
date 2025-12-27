@@ -3,6 +3,7 @@ import '../services/subscription_service.dart';
 import '../data/models/subscription.dart';
 import '../../../core/theme/app_colors.dart';
 import '../presentation/subscription_page.dart';
+import 'upgrade_modal_enhanced.dart';
 
 /// Subscription Guard Widget
 /// Wraps content and shows upgrade prompt if subscription is not active
@@ -168,6 +169,110 @@ class SubscriptionHelper {
     final subscription = await _service.getCurrentSubscription();
     return subscription?.isExpiringSoon ?? false;
   }
+}
+
+/// Universal wrapper for requiring active subscription
+/// PHASE: Subscriber Expired System - Soft block dengan action block message
+/// 
+/// 🔴 B. ACTION BLOCK MESSAGE (BILA USER KLIK BUTANG)
+/// 
+/// Usage:
+/// ```dart
+/// await requirePro(context, 'Tambah Jualan', () async {
+///   // Your create/edit/delete logic here
+/// });
+/// ```
+Future<void> requirePro(
+  BuildContext context,
+  String action,
+  Future<void> Function() run,
+) async {
+  final subscription = await SubscriptionService().getCurrentSubscription();
+  
+  // Check if user has active subscription (includes trial, active, grace)
+  if (subscription == null || !subscription.isActive) {
+    // Show enhanced upgrade modal with action context
+    if (context.mounted) {
+      await UpgradeModalEnhanced.show(
+        context,
+        action: action,
+        subscription: subscription,
+      );
+    }
+    return;
+  }
+  
+  // User has access, proceed with action
+  await run();
+}
+
+/// Show upgrade modal for expired/no subscription users
+void _showUpgradeModal(
+  BuildContext context,
+  String action,
+  Subscription? subscription,
+) {
+  final isTrial = subscription?.isOnTrial ?? false;
+  final daysRemaining = subscription?.daysRemaining ?? 0;
+  
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.workspace_premium, color: AppColors.primary),
+          const SizedBox(width: 8),
+          const Text('Upgrade Diperlukan'),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Tindakan: $action',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (isTrial)
+            Text(
+              'Trial percuma anda akan tamat dalam $daysRemaining hari. Upgrade untuk teruskan menggunakan semua ciri.',
+              style: const TextStyle(fontSize: 14),
+            )
+          else
+            const Text(
+              'Fitur ini memerlukan langganan aktif. Upgrade sekarang untuk akses penuh.',
+              style: TextStyle(fontSize: 14),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Batal'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const SubscriptionPage(),
+              ),
+            );
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Lihat Pakej'),
+        ),
+      ],
+    ),
+  );
 }
 
 

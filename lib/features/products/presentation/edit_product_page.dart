@@ -7,6 +7,7 @@ import '../../../data/models/product.dart';
 import '../../../core/supabase/supabase_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/image_upload_service.dart';
+import '../../../features/subscription/widgets/subscription_guard.dart';
 import '../../recipes/presentation/recipe_builder_page.dart';
 import 'widgets/category_dropdown.dart';
 
@@ -156,9 +157,11 @@ class _EditProductPageState extends State<EditProductPage> {
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _loading = true);
+    // PHASE: Subscriber Expired System - Protect edit action
+    await requirePro(context, 'Edit Produk', () async {
+      setState(() => _loading = true);
 
-    try {
+      try {
       String? imageUrl = _currentImageUrl;
 
       // Upload image if there's a pending one

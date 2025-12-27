@@ -15,6 +15,7 @@ import '../../feedback/presentation/submit_feedback_page.dart';
 import '../../feedback/presentation/my_feedback_page.dart';
 import '../../feedback/presentation/community_links_page.dart';
 import '../../feedback/presentation/admin/admin_feedback_page.dart';
+import '../../subscription/widgets/expired_banner.dart';
 import 'dashboard_page_optimized.dart';
 
 class HomePage extends StatefulWidget {
@@ -59,7 +60,14 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_currentIndex],
+      body: Column(
+        children: [
+          // PHASE: Subscriber Expired System - Global Expired Banner
+          const ExpiredBanner(),
+          // Main content
+          Expanded(child: _pages[_currentIndex]),
+        ],
+      ),
       // Bottom navigation with Scan in center (same level as other icons)
       bottomNavigationBar: Container(
         decoration: BoxDecoration(

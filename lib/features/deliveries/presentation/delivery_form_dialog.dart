@@ -20,6 +20,7 @@ import '../../../data/models/vendor.dart';
 import '../../../data/models/product.dart';
 import '../../../core/utils/vendor_price_calculator.dart';
 import '../../../core/supabase/supabase_client.dart';
+import '../../subscription/widgets/subscription_guard.dart';
 
 /// Delivery Form Dialog
 /// Handles creating new deliveries with items
@@ -854,49 +855,56 @@ class _DeliveryFormDialogState extends State<DeliveryFormDialog> {
       }
     }
 
-    setState(() => _isSubmitting = true);
+    // PHASE: Subscriber Expired System - Protect create action
+    await requirePro(context, 'Tambah Penghantaran', () async {
+      setState(() => _isSubmitting = true);
 
-    try {
-      // Save last vendor
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('pocketbizz_last_delivery_vendor', _selectedVendorId!);
+      try {
+        // Save last vendor
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('pocketbizz_last_delivery_vendor', _selectedVendorId!);
 
-      // Prepare items data
-      final itemsData = _items.map((item) {
-        return {
-          'product_id': item.productId,
-          'product_name': item.productName,
-          'quantity': item.quantity,
-          'unit_price': double.tryParse(item.unitPrice) ?? 0.0,
-          'retail_price': double.tryParse(item.retailPrice ?? '0') ?? 0.0,
-          'rejected_qty': item.rejectedQty,
-          'rejection_reason': item.rejectionReason,
-        };
-      }).toList();
+        // Prepare items data
+        final itemsData = _items.map((item) {
+          return {
+            'product_id': item.productId,
+            'product_name': item.productName,
+            'quantity': item.quantity,
+            'unit_price': double.tryParse(item.unitPrice) ?? 0.0,
+            'retail_price': double.tryParse(item.retailPrice ?? '0') ?? 0.0,
+            'rejected_qty': item.rejectedQty,
+            'rejection_reason': item.rejectionReason,
+          };
+        }).toList();
 
-      // Create delivery
-      final delivery = await widget.deliveriesRepo.createDelivery(
-        vendorId: _selectedVendorId!,
-        deliveryDate: _deliveryDate,
-        status: _status,
-        items: itemsData,
-      );
-
-      if (mounted) {
-        widget.onSuccess(delivery);
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
+        // Create delivery
+        final delivery = await widget.deliveriesRepo.createDelivery(
+          vendorId: _selectedVendorId!,
+          deliveryDate: _deliveryDate,
+          status: _status,
+          items: itemsData,
         );
+
+        if (mounted) {
+          widget.onSuccess(delivery);
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _isSubmitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isSubmitting = false);
+        }
       }
-    }
+    });
   }
 
   @override

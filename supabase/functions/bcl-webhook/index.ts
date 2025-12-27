@@ -171,6 +171,29 @@ const jsonResponse = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
+// PHASE 7: Helper to check if payment is prorated (for amount validation)
+const checkIfProrated = async (subscriptionId: string): Promise<boolean> => {
+  try {
+    const { data: subscription, error } = await supabase
+      .from("subscriptions")
+      .select("notes, payment_reference")
+      .eq("id", subscriptionId)
+      .maybeSingle();
+    
+    if (error || !subscription) {
+      return false;
+    }
+    
+    // Check if notes contain "prorated" or payment_reference contains "prorated"
+    const notes = (subscription.notes as string)?.toLowerCase() ?? "";
+    const paymentRef = (subscription.payment_reference as string)?.toLowerCase() ?? "";
+    
+    return notes.includes("prorated") || paymentRef.includes("prorated");
+  } catch {
+    return false;
+  }
+};
+
 // Rate limiting configuration
 const RATE_LIMIT_CONFIG = {
   // IP-based: 10 requests per minute per IP
@@ -281,13 +304,25 @@ Deno.serve(async (req) => {
     const orderNumber = payloadData.order_number?.toString() ?? "";
     const status = payloadData.status;
     const statusDescription = payloadData.status_description;
+    const webhookCurrency = payloadData.currency?.toString().toUpperCase() ?? "";
+    const webhookAmount = parseFloat(payloadData.amount?.toString() ?? "0");
     
     console.log(`[${new Date().toISOString()}] Order number: ${orderNumber}`);
     console.log(`[${new Date().toISOString()}] Status: ${status}, Description: ${statusDescription}`);
+    console.log(`[${new Date().toISOString()}] Currency: ${webhookCurrency}, Amount: ${webhookAmount}`);
     
     if (!orderNumber) {
       console.warn(`[${new Date().toISOString()}] Missing order_number in payload`);
       return jsonResponse({ message: "Missing order_number" });
+    }
+
+    // PHASE 7: Strict currency validation (MYR only)
+    if (webhookCurrency && webhookCurrency !== "MYR") {
+      console.error(`[${new Date().toISOString()}] Invalid currency: ${webhookCurrency}. Expected MYR.`);
+      return jsonResponse({ 
+        error: "Invalid currency", 
+        message: `Expected MYR, received ${webhookCurrency}` 
+      }, 400);
     }
 
     // Rate limiting: Check order-number-based limit (prevent duplicate processing)
@@ -377,9 +412,15 @@ Deno.serve(async (req) => {
       subscription_id: payment.subscription_id,
     });
 
+    // PHASE 7: Strict idempotency check - reject if already completed
     if (payment.status === "completed") {
       console.log(`[${new Date().toISOString()}] Payment already processed: ${payment.id}`);
-      return jsonResponse({ message: "Already processed" });
+      // Return 200 OK to prevent webhook retries, but log as duplicate
+      return jsonResponse({ 
+        message: "Already processed",
+        duplicate: true,
+        payment_id: payment.id 
+      });
     }
 
     // Determine success status
@@ -485,8 +526,18 @@ Deno.serve(async (req) => {
 
       if (isExtend) {
         // For extend: update existing active subscription instead of creating new one
+        // PHASE 8: Preserve auto_renew flag when extending
         const graceUntil = new Date(expiresAt);
         graceUntil.setDate(graceUntil.getDate() + 7);
+
+        // Get current auto_renew status
+        const { data: currentSub, error: currentSubError } = await supabase
+          .from("subscriptions")
+          .select("auto_renew")
+          .eq("id", activeSub.id)
+          .maybeSingle();
+        
+        const preserveAutoRenew = currentSub?.auto_renew ?? true;
 
         const { error: extendError } = await supabase
           .from("subscriptions")
@@ -497,6 +548,7 @@ Deno.serve(async (req) => {
             payment_completed_at: nowIso,
             updated_at: nowIso,
             payment_reference: orderNumber,
+            auto_renew: preserveAutoRenew, // PHASE 8: Preserve auto_renew flag
           })
           .eq("id", activeSub.id);
 
@@ -553,23 +605,35 @@ Deno.serve(async (req) => {
         }
       }
 
+      // PHASE 7: Strict amount validation
       // Get amount from BCL.my webhook (actual amount paid)
-      const webhookAmount = parseFloat(payloadData.amount?.toString() ?? "0");
       const expectedAmount = payment.amount as number;
       const amountDiff = Math.abs(webhookAmount - expectedAmount);
+      const amountTolerance = 0.50; // Allow 50 sen difference for rounding
       
-      // For receipt accuracy: Use actual amount from BCL.my webhook if available and valid
-      // For prorated payments, BCL.my may charge fixed form amount, but we should use actual amount paid
-      // Only use expected amount if webhook amount is invalid (0 or negative)
+      // Strict validation: Reject if amount mismatch is too large
+      if (webhookAmount > 0 && amountDiff > amountTolerance) {
+        // Check if this is a prorated payment (has prorated flag in payment notes or metadata)
+        const isProrated = payment.subscription_id ? await checkIfProrated(payment.subscription_id) : false;
+        
+        if (!isProrated && amountDiff > amountTolerance) {
+          console.error(`[${new Date().toISOString()}] Amount mismatch: webhook=${webhookAmount}, expected=${expectedAmount}, diff=${amountDiff.toFixed(2)}`);
+          return jsonResponse({ 
+            error: "Amount mismatch", 
+            message: `Expected ${expectedAmount.toFixed(2)} MYR, received ${webhookAmount.toFixed(2)} MYR (diff: ${amountDiff.toFixed(2)})` 
+          }, 400);
+        }
+      }
+      
+      // Use webhook amount if valid, otherwise use expected amount
       let finalAmount = expectedAmount;
-      if (webhookAmount > 0 && webhookAmount <= expectedAmount * 1.5) {
-        // Accept webhook amount if it's reasonable (within 50% of expected, to handle prorated payments)
+      if (webhookAmount > 0 && amountDiff <= amountTolerance) {
         finalAmount = webhookAmount;
         if (amountDiff > 0.01) {
           console.log(`[${new Date().toISOString()}] Using BCL.my webhook amount: ${webhookAmount} (expected: ${expectedAmount}, diff: ${amountDiff.toFixed(2)})`);
         }
-      } else if (webhookAmount > 0) {
-        console.warn(`[${new Date().toISOString()}] Webhook amount ${webhookAmount} seems invalid, using expected amount ${expectedAmount}`);
+      } else if (webhookAmount <= 0) {
+        console.warn(`[${new Date().toISOString()}] Webhook amount ${webhookAmount} is invalid (0 or negative), using expected amount ${expectedAmount}`);
       }
 
       // Update payment status with actual data from BCL.my webhook

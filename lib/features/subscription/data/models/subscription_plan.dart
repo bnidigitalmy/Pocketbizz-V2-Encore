@@ -61,8 +61,11 @@ class SubscriptionPlan {
       discountedPrice = total;
     }
     
-    // Round to nearest whole number for professional display
-    return discountedPrice.roundToDouble();
+    // BCL.my forms use whole-ringgit totals; to match charged amount precisely,
+    // we FLOOR (not round) to the nearest whole ringgit.
+    // Examples:
+    // - 12 months: 348 - 15% = 295.80 -> 295
+    return discountedPrice.floorToDouble();
   }
 
   /// Get savings text for display
